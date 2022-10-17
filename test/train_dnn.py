@@ -56,18 +56,19 @@ if __name__ == '__main__':
     valdataset = OADSImageDataset(data=val_data, class_index_mapping=class_index_mapping, transform=transform)
     testdataset = OADSImageDataset(data=test_data, class_index_mapping=class_index_mapping, transform=transform)
 
-    trainloader = DataLoader(traindataset, batch_size=batch_size, shuffle=True, num_workers=1)
-    valloader = DataLoader(valdataset, batch_size=batch_size, shuffle=True, num_workers=1)
-    testloader = DataLoader(testdataset, batch_size=batch_size, shuffle=True, num_workers=1)
+    trainloader = DataLoader(traindataset, batch_size=batch_size, shuffle=True, num_workers=2)
+    valloader = DataLoader(valdataset, batch_size=batch_size, shuffle=True, num_workers=2)
+    testloader = DataLoader(testdataset, batch_size=batch_size, shuffle=True, num_workers=2)
 
 
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
 
     for epoch in range(int(args.n_epochs)):  # loop over the dataset multiple times
-
+        print(f"Running epoch {epoch}")
         running_loss = 0.0
-        for i, data in enumerate(trainloader, 0):
+        for i, data in enumerate(trainloader):
+            print(f"Running {i}")
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data
             # inputs = inputs.float()
@@ -77,9 +78,13 @@ if __name__ == '__main__':
 
             # forward + backward + optimize
             outputs = model(inputs)
+            print(f"Got output!")
             loss = criterion(outputs, labels)
+            print(f"Got loss!")
             loss.backward()
+            print(f"Got backward!")
             optimizer.step()
+            print(f"Got optimizer step!")
 
             # print statistics
             running_loss += loss.item()

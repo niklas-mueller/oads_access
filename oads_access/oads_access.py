@@ -223,7 +223,7 @@ class OADS_Access():
 
         return _max_height, _max_width
 
-    def get_train_val_test_split(self, data_iterator:list|np.ndarray = None, val_size:float=0.1, test_size:float=0.1, 
+    def get_train_val_test_split(self, data_iterator:"list|np.ndarray" = None, val_size:float=0.1, test_size:float=0.1, 
                                     use_crops:bool=False, min_size:tuple=(0,0), max_size:tuple=None, file_formats:list=None):
         """get_train_val_test_split
 
@@ -262,7 +262,7 @@ class OADS_Access():
 
         return train_data, val_data, test_data
 
-    def get_crop_iterator(self, data_iterator:list|np.ndarray = None, min_size=(0,0), max_size:tuple=None, file_formats:list=None):
+    def get_crop_iterator(self, data_iterator:"list|np.ndarray" = None, min_size=(0,0), max_size:tuple=None, file_formats:list=None):
         if data_iterator is None:
             data_iterator = self.get_data_iterator(file_formats=file_formats)
         
@@ -275,7 +275,7 @@ class OADS_Access():
         return crop_iterator
 
 # create crops from image
-def get_image_crop(img:np.ndarray|list|Image.Image, object:dict, min_size:tuple, max_size:tuple=None):
+def get_image_crop(img:"np.ndarray|list|Image.Image", object:dict, min_size:tuple, max_size:tuple=None):
     """get_image_crop
 
     Using the annotation box object, crop the original image to the given size.
