@@ -1,4 +1,5 @@
 import argparse, os
+from datetime import datetime
 import numpy as np
 from oads_access.oads_access import OADS_Access, OADSImageDataset, TestModel
 import torchvision.transforms as transforms
@@ -13,6 +14,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--input_dir', help='Path to input directory.')
     parser.add_argument('--output_dir', help='Path to output directory.')
+    parser.add_argument('--model_name', help='Model name to save the model under', default=f'model_{datetime.now().strftime("%d-%m-%y-%H:%M:%S")}')
     parser.add_argument('--n_epochs', help='Number of epochs for training.')
 
     args = parser.parse_args()
@@ -25,7 +27,7 @@ if __name__ == '__main__':
 
     # Setting weird stuff
     torch.multiprocessing.set_start_method('spawn')
-    os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+    # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
     # initialize data access
     # home = '../../data/oads/mini_oads/'
@@ -49,16 +51,16 @@ if __name__ == '__main__':
     # Get the custom dataset and dataloader
     transform = transforms.Compose([
         transforms.ToTensor(),
-        # transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
 
     traindataset = OADSImageDataset(data=train_data, class_index_mapping=class_index_mapping, transform=transform)
     valdataset = OADSImageDataset(data=val_data, class_index_mapping=class_index_mapping, transform=transform)
     testdataset = OADSImageDataset(data=test_data, class_index_mapping=class_index_mapping, transform=transform)
 
-    trainloader = DataLoader(traindataset, batch_size=batch_size, shuffle=True, num_workers=2)
-    valloader = DataLoader(valdataset, batch_size=batch_size, shuffle=True, num_workers=2)
-    testloader = DataLoader(testdataset, batch_size=batch_size, shuffle=True, num_workers=2)
+    trainloader = DataLoader(traindataset, batch_size=batch_size, shuffle=True, num_workers=1)
+    valloader = DataLoader(valdataset, batch_size=batch_size, shuffle=True, num_workers=1)
+    testloader = DataLoader(testdataset, batch_size=batch_size, shuffle=True, num_workers=1)
 
 
     criterion = nn.CrossEntropyLoss()
@@ -68,23 +70,19 @@ if __name__ == '__main__':
         print(f"Running epoch {epoch}")
         running_loss = 0.0
         for i, data in enumerate(trainloader):
-            print(f"Running {i}")
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data
-            # inputs = inputs.float()
+            inputs = inputs.to('cuda:0')
+            labels = labels.to('cuda:0')
 
             # zero the parameter gradients
             optimizer.zero_grad()
 
             # forward + backward + optimize
             outputs = model(inputs)
-            print(f"Got output!")
             loss = criterion(outputs, labels)
-            print(f"Got loss!")
             loss.backward()
-            print(f"Got backward!")
             optimizer.step()
-            print(f"Got optimizer step!")
 
             # print statistics
             running_loss += loss.item()
@@ -93,3 +91,6 @@ if __name__ == '__main__':
                 running_loss = 0.0
 
     print(f'Finished Training with loss: {loss.item()}')
+
+
+    torch.save(model, os.path.join(args.output_dir, f'{args.model_name}.pth'))

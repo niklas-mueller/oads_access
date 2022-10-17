@@ -54,9 +54,9 @@ class OADSImageDataset(Dataset):
         if self.target_transform:
             label = self.target_transform(label)
 
-        img = img.to(self.device)
+        # img = img.to(self.device)
         # print(type(img), img.device)
-        # label.to(self.device)
+        # label = label.to(self.device)
         return img, label
 
 class OADS_Access():
