@@ -7,8 +7,26 @@ import numpy as np
 from scipy.sparse import data
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
+from torch import nn as nn
 # from torch.utils.data import DataLoader
 # import torchvision.transforms as transforms
+
+class TestModel(nn.Module):
+    def __init__(self, input_channels, output_channels, input_shape) -> None:
+        super(TestModel, self).__init__()
+
+        self.layers = nn.Sequential(
+            nn.Conv2d(input_channels, 32, kernel_size=(3,3), padding='valid'),       # ((100,100) - (3,3)) / 1 + 1   = (98,98)
+            nn.Conv2d(32, 2, kernel_size=(3,3), padding='valid'),                    # ((98,98) - (3,3)) / 1 + 1     = (96,96)
+            nn.Flatten(),
+        )
+        self.fc = nn.Linear(in_features=96*96*2, out_features=output_channels)
+
+    def forward(self, x):
+        # print(f"Input shape: {x.shape}")
+        z = self.layers(x)
+        # print(f"After conv shape: {z.shape}")
+        return self.fc(z)
 
 class OADSImageDataset(Dataset):
     def __init__(self, data: list, class_index_mapping, transform=None, target_transform=None, device='cuda:0') -> None:
