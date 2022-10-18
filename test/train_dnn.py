@@ -35,7 +35,7 @@ if __name__ == '__main__':
     oads = OADS_Access(home)
 
     # get train, val, test split, using crops if specific size
-    size = (100, 100)
+    size = (200, 200)
     train_data, val_data, test_data = oads.get_train_val_test_split(use_crops=True, min_size=size, max_size=size)
     input_channels = np.array(train_data[0][0]).shape[-1]
 

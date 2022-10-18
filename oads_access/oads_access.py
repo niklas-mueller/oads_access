@@ -16,11 +16,11 @@ class TestModel(nn.Module):
         super(TestModel, self).__init__()
 
         self.layers = nn.Sequential(
-            nn.Conv2d(input_channels, 32, kernel_size=(3,3), padding='valid'),       # ((100,100) - (3,3)) / 1 + 1   = (98,98)
-            nn.Conv2d(32, 2, kernel_size=(3,3), padding='valid'),                    # ((98,98) - (3,3)) / 1 + 1     = (96,96)
+            nn.Conv2d(input_channels, 32, kernel_size=(3,3), padding='same'),       # ((100,100) - (3,3)) / 1 + 1   = (98,98)
+            nn.Conv2d(32, 2, kernel_size=(3,3), padding='same'),                    # ((98,98) - (3,3)) / 1 + 1     = (96,96)
             nn.Flatten(),
         )
-        self.fc = nn.Linear(in_features=96*96*2, out_features=output_channels)
+        self.fc = nn.Linear(in_features=input_shape[0]*input_shape[1]*2, out_features=output_channels)
 
     def forward(self, x):
         # print(f"Input shape: {x.shape}")
