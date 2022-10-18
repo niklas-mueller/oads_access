@@ -4,7 +4,7 @@ import numpy as np
 from oads_access.oads_access import OADS_Access, OADSImageDataset, TestModel
 import torchvision.transforms as transforms
 import torch
-from torch import nn as nn
+import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
@@ -22,8 +22,11 @@ if __name__ == '__main__':
     # Check if GPU is available
     if not torch.cuda.is_available():
         print("GPU not available. Exiting ....")
+        device = torch.device('cpu')
         exit(1)
-    print("Using GPU!")
+    else:
+        device = torch.device("cuda")
+        print("Using GPU!")
 
     # Setting weird stuff
     torch.multiprocessing.set_start_method('spawn')
@@ -44,9 +47,10 @@ if __name__ == '__main__':
 
     # Initialize model
     model = TestModel(input_channels=input_channels, output_channels=output_channels, input_shape=size)
-    model = model.to('cuda:0')
+    model = torch.nn.DataParallel(model)
+    model = model.to(device)
 
-    batch_size = 10
+    batch_size = 32
 
     # Get the custom dataset and dataloader
     transform = transforms.Compose([
@@ -72,8 +76,8 @@ if __name__ == '__main__':
         for i, data in enumerate(trainloader):
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data
-            inputs = inputs.to('cuda:0')
-            labels = labels.to('cuda:0')
+            inputs = inputs.to(device)
+            labels = labels.to(device)
 
             # zero the parameter gradients
             optimizer.zero_grad()
