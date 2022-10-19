@@ -1,13 +1,12 @@
-import argparse, os
+import argparse, os, sys
 from datetime import datetime
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib import pyplot as plt
 import numpy as np
-from test.model import visTensor
-from RetinalResources.model import RetinaCortexModel
+from model import visTensor, TestModel, evaluate
 from result_manager.result_manager import ResultManager
-from oads_access.oads_access import OADS_Access, OADSImageDataset, TestModel
-from model import TestModel, evaluate
+from oads_access.oads_access import OADS_Access, OADSImageDataset
+from retina_model import RetinaCortexModel
 import torchvision.transforms as transforms
 import torch
 import torch.nn as nn
