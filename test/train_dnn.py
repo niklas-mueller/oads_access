@@ -1,7 +1,13 @@
 import argparse, os
 from datetime import datetime
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib import pyplot as plt
 import numpy as np
+from test.model import visTensor
+from RetinalResources.model import RetinaCortexModel
+from result_manager.result_manager import ResultManager
 from oads_access.oads_access import OADS_Access, OADSImageDataset, TestModel
+from model import TestModel, evaluate
 import torchvision.transforms as transforms
 import torch
 import torch.nn as nn
@@ -16,6 +22,8 @@ if __name__ == '__main__':
     parser.add_argument('--output_dir', help='Path to output directory.')
     parser.add_argument('--model_name', help='Model name to save the model under', default=f'model_{datetime.now().strftime("%d-%m-%y-%H:%M:%S")}')
     parser.add_argument('--n_epochs', help='Number of epochs for training.')
+    parser.add_argument('--optimizer', help='Optimizer to use for training', default='sgd')
+    parser.add_argument('--model_type', help='Model to use for training. Can be "test" or "retina_cortex"', default='retina_cortex')
 
     args = parser.parse_args()
 
@@ -37,6 +45,8 @@ if __name__ == '__main__':
     home = args.input_dir
     oads = OADS_Access(home)
 
+    result_manager = ResultManager(root=args.output_dir)
+
     # get train, val, test split, using crops if specific size
     size = (200, 200)
     train_data, val_data, test_data = oads.get_train_val_test_split(use_crops=True, min_size=size, max_size=size)
@@ -46,9 +56,14 @@ if __name__ == '__main__':
     class_index_mapping = {key: index for index, key in enumerate(list(oads.get_class_mapping().keys()))}
 
     # Initialize model
-    model = TestModel(input_channels=input_channels, output_channels=output_channels, input_shape=size)
-    model = torch.nn.DataParallel(model)
-    model = model.to(device)
+    if args.model_type == 'test':
+        model = TestModel(input_channels=input_channels, output_channels=output_channels, input_shape=size)
+        model = torch.nn.DataParallel(model)
+        model = model.to(device)
+    elif args.model_type == 'retina_cortex':
+        model = RetinaCortexModel(n_retina_layers=2, n_retina_in_channels=input_channels, n_retina_out_channels=2, retina_width=32,
+                                input_shape=size, kernel_size=(9,9), n_vvs_layers=2, out_features=output_channels, vvs_width=32)
+
 
     batch_size = 32
 
@@ -58,9 +73,9 @@ if __name__ == '__main__':
         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
     ])
 
-    traindataset = OADSImageDataset(data=train_data, class_index_mapping=class_index_mapping, transform=transform)
-    valdataset = OADSImageDataset(data=val_data, class_index_mapping=class_index_mapping, transform=transform)
-    testdataset = OADSImageDataset(data=test_data, class_index_mapping=class_index_mapping, transform=transform)
+    traindataset = OADSImageDataset(data=train_data, class_index_mapping=class_index_mapping, transform=transform, device=device)
+    valdataset = OADSImageDataset(data=val_data, class_index_mapping=class_index_mapping, transform=transform, device=device)
+    testdataset = OADSImageDataset(data=test_data, class_index_mapping=class_index_mapping, transform=transform, device=device)
 
     trainloader = DataLoader(traindataset, batch_size=batch_size, shuffle=True, num_workers=1)
     valloader = DataLoader(valdataset, batch_size=batch_size, shuffle=True, num_workers=1)
@@ -68,7 +83,16 @@ if __name__ == '__main__':
 
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+
+    if args.optimizer == 'sgd':
+        optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    elif args.optimizer == 'rmsprop':
+        optimizer = optim.RMSprop(model.parameters(), lr=0.001, momentum=0.9)
+
+    
+    results = {}
+    eval_begin = evaluate(testloader, model, criterion=criterion)
+    results['eval_pre_training'] = eval_begin
 
     for epoch in range(int(args.n_epochs)):  # loop over the dataset multiple times
         print(f"Running epoch {epoch}")
@@ -96,5 +120,28 @@ if __name__ == '__main__':
 
     print(f'Finished Training with loss: {loss.item()}')
 
+    eval = evaluate(loader=testloader, model=model)
+    eval['training_loss'] = loss.item()
 
-    torch.save(model, os.path.join(args.output_dir, f'{args.model_name}.pth'))
+    results['eval_post_training'] = eval
+
+    # torch.save(model.state_dict(), os.path.join(args.output_dir, f'{args.model_name}.pth'))
+
+    result_manager.save_result(results, filename='result_dict.yml', overwrite=True)
+    result_manager.save_model(model, filename='model.pth', overwrite=True)
+
+    figs = []
+    for name, module in model.module.named_modules():
+        if not isinstance(module, nn.Sequential):
+            if type(module) == nn.modules.conv.Conv2d or type(module) == nn.Conv2d:
+                filter = module.weight.cpu().data.clone()
+            else:
+                continue
+            fig = visTensor(filter, ch=0, allkernels=True)
+            figs.append(fig)
+            plt.axis('off')
+            plt.title(f'Layer: {name}')
+            plt.ioff()
+            # plt.show()
+
+    result_manager.save_pdf(figs=figs, filename='layer_visualisation_after_training.pdf')

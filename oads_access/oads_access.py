@@ -1,39 +1,19 @@
-import os, sys, json
+import os, json
 from PIL import Image
 import rawpy
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import numpy as np
-from scipy.sparse import data
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 from torch import nn as nn
-# from torch.utils.data import DataLoader
-# import torchvision.transforms as transforms
 
-class TestModel(nn.Module):
-    def __init__(self, input_channels, output_channels, input_shape) -> None:
-        super(TestModel, self).__init__()
 
-        self.layers = nn.Sequential(
-            nn.Conv2d(input_channels, 32, kernel_size=(3,3), padding='same'),       # ((100,100) - (3,3)) / 1 + 1   = (98,98)
-            nn.Conv2d(32, 2, kernel_size=(3,3), padding='same'),                    # ((98,98) - (3,3)) / 1 + 1     = (96,96)
-            nn.Flatten(),
-        )
-        self.fc = nn.Linear(in_features=input_shape[0]*input_shape[1]*2, out_features=output_channels)
-
-    def forward(self, x):
-        # print(f"Input shape: {x.shape}")
-        z = self.layers(x)
-        # print(f"After conv shape: {z.shape}")
-        return self.fc(z)
 
 class OADSImageDataset(Dataset):
     def __init__(self, data: list, class_index_mapping, transform=None, target_transform=None, device='cuda:0') -> None:
         super().__init__()
 
-        # self.oads = oads
-        # self.train_data, self.val_data, self.test_data = oads.get_train_val_test_split(use_crops=use_crops, min_size=min_size, max_size=max_size)
         self.data = data
         self.transform = transform
         self.target_transform = target_transform
@@ -54,9 +34,6 @@ class OADSImageDataset(Dataset):
         if self.target_transform:
             label = self.target_transform(label)
 
-        # img = img.to(self.device)
-        # print(type(img), img.device)
-        # label = label.to(self.device)
         return img, label
 
 class OADS_Access():
@@ -194,6 +171,13 @@ class OADS_Access():
                 data.append(tup)
         return data
 
+    def get_annotation_size(self, obj:dict):
+        ((left, top), (right, bottom)) = obj['points']['exterior']
+        height = bottom - top
+        width = right - left
+
+        return height, width
+
     def get_maximum_annotation_size(self):
         """get_maximum_annotation_size
 
@@ -213,11 +197,9 @@ class OADS_Access():
         _max_height = 0
         _max_width = 0
 
-        for (img, label) in data:
+        for (_, label) in data:
             for obj in label['objects']:
-                ((left, top), (right, bottom)) = obj['points']['exterior']
-                height = bottom - top
-                width = right - left
+                height, width = self.get_annotation_size(obj)
                 _max_height = max(_max_height, height)
                 _max_width = max(_max_width, width)
 
@@ -262,13 +244,18 @@ class OADS_Access():
 
         return train_data, val_data, test_data
 
-    def get_crop_iterator(self, data_iterator:"list|np.ndarray" = None, min_size=(0,0), max_size:tuple=None, file_formats:list=None):
+    def get_crop_iterator(self, data_iterator:"list|np.ndarray" = None, min_size=(0,0), max_size:tuple=None, 
+                            file_formats:list=None, exclude_oversized_crops:bool=False):
         if data_iterator is None:
             data_iterator = self.get_data_iterator(file_formats=file_formats)
         
         crop_iterator = []
         for (img, label) in data_iterator:
             for obj in label['objects']:
+                if exclude_oversized_crops:
+                    height, width = self.get_annotation_size(obj)
+                    if height > max_size[0] or width > max_size[1]:
+                        continue
                 crop = get_image_crop(img=img, object=obj, min_size=min_size, max_size=max_size)
                 crop_iterator.append((crop, obj))
 
