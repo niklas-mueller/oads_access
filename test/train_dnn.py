@@ -50,7 +50,7 @@ if __name__ == '__main__':
     # get train, val, test split, using crops if specific size
     size = (200, 200)
     train_data, val_data, test_data = oads.get_train_val_test_split(use_crops=True, min_size=size, max_size=size)
-    print(f"Loaded data with train_data.shape: {train_data.shape}")
+    print(f"Loaded data with train_data.shape: {len(train_data)}")
     
     input_channels = np.array(train_data[0][0]).shape[-1]
 
@@ -69,10 +69,14 @@ if __name__ == '__main__':
 
     batch_size = 32
 
+    means, stds = oads.get_dataset_stats(train_data)
+    # if not means.shape == (3,):
+    #     print(means.shape, stds.shape)
+
     # Get the custom dataset and dataloader
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        transforms.Normalize(means.mean(axis=0), stds.mean(axis=0))
     ])
 
     traindataset = OADSImageDataset(data=train_data, class_index_mapping=class_index_mapping, transform=transform, device=device)

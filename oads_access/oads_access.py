@@ -275,6 +275,17 @@ class OADS_Access():
 
         return crop_iterator
 
+    def get_dataset_stats(self, data_iterator:"list|np.ndarray"):
+        means, stds = [], []
+        for img, _ in data_iterator:
+            img_np = np.array(img)
+            mean = np.mean(img_np, axis=(0,1))
+            std = np.std(img_np, axis=(0,1))
+            means.append(mean)
+            stds.append(std)
+
+        return np.array(means), np.array(stds)
+
 # create crops from image
 def get_image_crop(img:"np.ndarray|list|Image.Image", object:dict, min_size:tuple, max_size:tuple=None):
     """get_image_crop
