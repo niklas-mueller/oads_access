@@ -52,12 +52,19 @@ class OADS_Access():
     def __init__(self, basedir: str):
         self.basedir = basedir
 
+        if not os.path.exists(os.path.join(basedir, 'meta.json')):
+            self.has_raw_images = True
+            self.img_dir = os.path.join(self.basedir, 'oads_arw')
+            self.basedir = os.path.join(self.basedir, 'oads_jpeg')
+        else:
+            self.has_raw_images = False
+
         self.datasets = [x for x in os.listdir(self.basedir) if os.path.isdir(os.path.join(self.basedir, x))]
 
-        
         self.image_names = {
             name: [x for x in os.listdir(os.path.join(self.basedir, name, 'img'))] for name in self.datasets
         }
+
 
     def get_meta_info(self):
         """get_meta_info
@@ -151,8 +158,15 @@ class OADS_Access():
 
         data = []
         for dataset_name in dataset_names:
+            image_name:str
             for image_name in self.image_names[dataset_name]:
-                filename = os.path.join(self.basedir, dataset_name, 'img', image_name)
+                if self.has_raw_images:
+                    filename = os.path.join(self.img_dir, 'ARW', f"{image_name.split('.')[0]}.ARW")
+                    if not os.path.exists(filename):
+                        print(f"File doesn't exists! Skipping: {filename}")
+                        continue
+                else:
+                    filename = os.path.join(self.basedir, dataset_name, 'img', image_name)
 
                 fileformat = os.path.splitext(filename)[-1]
                 if file_formats is not None and fileformat not in file_formats:

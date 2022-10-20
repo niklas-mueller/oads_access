@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
+import time
 
 if __name__ == '__main__':
     # Instantiate the parser
@@ -49,6 +50,8 @@ if __name__ == '__main__':
     # get train, val, test split, using crops if specific size
     size = (200, 200)
     train_data, val_data, test_data = oads.get_train_val_test_split(use_crops=True, min_size=size, max_size=size)
+    print(f"Loaded data with train_data.shape: {train_data.shape}")
+    
     input_channels = np.array(train_data[0][0]).shape[-1]
 
     output_channels = len(oads.get_class_mapping())
@@ -93,7 +96,12 @@ if __name__ == '__main__':
     eval_begin = evaluate(testloader, model, criterion=criterion)
     results['eval_pre_training'] = eval_begin
 
+    print(f"Succesfully loaded everything with random test accuracy of {eval_begin['accuracy']}")
+    # exit(1)
+
+    epoch_times = []
     for epoch in range(int(args.n_epochs)):  # loop over the dataset multiple times
+        start_time_epoch = time.time()
         print(f"Running epoch {epoch}")
         running_loss = 0.0
         for i, data in enumerate(trainloader):
@@ -117,12 +125,17 @@ if __name__ == '__main__':
                 print(f'[{epoch + 1}, {i + 1:5d}] loss: {running_loss / 2000:.3f}')
                 running_loss = 0.0
 
+        end_time_epoch = time.time()
+        epoch_times.append(end_time_epoch - start_time_epoch)
+
     print(f'Finished Training with loss: {loss.item()}')
+    print(f'Average time per epoch for {args.n_epochs} epochs: {np.mean(epoch_times)}')
 
     eval = evaluate(loader=testloader, model=model)
     eval['training_loss'] = loss.item()
 
     results['eval_post_training'] = eval
+    results['average_epoch_time'] = np.mean(epoch_times)
 
     # torch.save(model.state_dict(), os.path.join(args.output_dir, f'{args.model_name}.pth'))
 
