@@ -226,7 +226,8 @@ class OADS_Access():
         return _max_height, _max_width
 
     def get_train_val_test_split(self, data_iterator:"list|np.ndarray" = None, val_size:float=0.1, test_size:float=0.1, 
-                                    use_crops:bool=False, min_size:tuple=(0,0), max_size:tuple=None, file_formats:list=None):
+                                    use_crops:bool=False, min_size:tuple=(0,0), max_size:tuple=None, file_formats:list=None, 
+                                    exclude_oversized_crops:bool=False):
         """get_train_val_test_split
 
         Split the data_iterator into train, validation and test sets.
@@ -255,7 +256,7 @@ class OADS_Access():
         """
         if data_iterator is None:
             if use_crops:
-                data_iterator = self.get_crop_iterator(min_size=min_size, max_size=max_size, file_formats=file_formats)
+                data_iterator = self.get_crop_iterator(min_size=min_size, max_size=max_size, file_formats=file_formats, exclude_oversized_crops=exclude_oversized_crops)
             else:
                 data_iterator = self.get_data_iterator(file_formats=file_formats)
 
@@ -273,7 +274,7 @@ class OADS_Access():
         for (img, label) in data_iterator:
             for obj in label['objects']:
                 if exclude_oversized_crops:
-                    height, width, min_size, max_size = self.get_annotation_size(obj, is_raw=label['is_raw'], min_size=min_size, max_size=max_size)
+                    height, width = self.get_annotation_size(obj, is_raw=label['is_raw'])
                     if height > max_size[0] or width > max_size[1]:
                         continue
                 crop = get_image_crop(img=img, object=obj, min_size=min_size, max_size=max_size, is_raw=label['is_raw'])
@@ -291,6 +292,24 @@ class OADS_Access():
             stds.append(std)
 
         return np.array(means), np.array(stds)
+
+    def plot_image_size_distribution(self, use_crops:bool, file_formats:list=None, figsize:tuple=(10,5)):
+
+        # Make scatter plot of x and y sizes and each images as dot
+        train_data, val_data, test_data = self.get_train_val_test_split(use_crops=use_crops, file_formats=file_formats, exclude_oversized_crops=False)
+        height_sizes = []
+        width_sizes = []
+        for img, _ in np.concatenate((train_data, val_data, test_data)):
+            (height, width, c) = np.array(img).shape
+
+            height_sizes.append(height)
+            width_sizes.append(width)
+        fig, ax = plt.subplots(1,1, figsize=figsize)
+        ax.scatter(height_sizes, width_sizes)
+        ax.set_xlabel('Image height')
+        ax.set_ylabel('Image width')
+
+        return fig
 
 def get_annotation_dimensions(obj:dict, is_raw, min_size:tuple=None, max_size:tuple=None):
     ((left, top), (right, bottom)) = obj['points']['exterior']
@@ -517,4 +536,3 @@ def plot_image_in_color_spaces(image:np.ndarray, figsize=(10,5), cmap_rgb:str=No
     ax[1][3].set_title('Original')
 
     return fig
-
