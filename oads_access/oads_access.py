@@ -1,3 +1,4 @@
+import multiprocessing
 import os, json
 from PIL import Image
 import rawpy
@@ -7,6 +8,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 from torch import nn as nn
+import tqdm
 
 
 
@@ -134,6 +136,39 @@ class OADS_Access():
         else:
             return None
 
+    def load_images_from_dataset(self, dataset_name):
+        data = []
+        image_name:str
+        for image_name in self.image_names[dataset_name]:
+            if self.has_raw_images:
+                filename = os.path.join(self.img_dir, 'ARW', f"{image_name.split('.')[0]}.ARW")
+                if not os.path.exists(filename):
+                    print(f"File doesn't exists! Skipping: {filename}")
+                    continue
+            else:
+                filename = os.path.join(self.basedir, dataset_name, 'img', image_name)
+
+            fileformat = os.path.splitext(filename)[-1]
+            if self.file_formats is not None and fileformat not in self.file_formats:
+                continue
+            
+            is_raw = False
+            if fileformat == '.arw' or fileformat == '.ARW':
+                is_raw = True
+                image_name = f"{image_name.split('.')[0]}.jpg"
+                with rawpy.imread(filename) as raw:
+                    img = raw.postprocess()
+
+            else:
+                img = Image.open(filename)
+                
+
+            label = self.get_annotation(dataset_name=dataset_name, image_name=image_name, is_raw=is_raw)
+            tup = (img, label)
+            data.append(tup)
+
+        return data
+
     def get_data_iterator(self, dataset_names=None, file_formats:list=None):
         """get_data_iterator
 
@@ -157,36 +192,42 @@ class OADS_Access():
         if dataset_names is None:
             dataset_names = self.datasets
 
-        data = []
-        for dataset_name in dataset_names:
-            image_name:str
-            for image_name in self.image_names[dataset_name]:
-                if self.has_raw_images:
-                    filename = os.path.join(self.img_dir, 'ARW', f"{image_name.split('.')[0]}.ARW")
-                    if not os.path.exists(filename):
-                        print(f"File doesn't exists! Skipping: {filename}")
-                        continue
-                else:
-                    filename = os.path.join(self.basedir, dataset_name, 'img', image_name)
+        self.file_formats = file_formats
 
-                fileformat = os.path.splitext(filename)[-1]
-                if file_formats is not None and fileformat not in file_formats:
-                    continue
+        # data = []
+        with multiprocessing.Pool() as pool:
+            data = list(tqdm.tqdm(pool.imap(self.load_images_from_dataset, dataset_names), total=len(dataset_names)))
+        data = [x for dataset in data for x in dataset]
+        
+        # for dataset_name in dataset_names:
+            # image_name:str
+            # for image_name in self.image_names[dataset_name]:
+            #     if self.has_raw_images:
+            #         filename = os.path.join(self.img_dir, 'ARW', f"{image_name.split('.')[0]}.ARW")
+            #         if not os.path.exists(filename):
+            #             print(f"File doesn't exists! Skipping: {filename}")
+            #             continue
+            #     else:
+            #         filename = os.path.join(self.basedir, dataset_name, 'img', image_name)
+
+            #     fileformat = os.path.splitext(filename)[-1]
+            #     if file_formats is not None and fileformat not in file_formats:
+            #         continue
                 
-                is_raw = False
-                if fileformat == '.arw' or fileformat == '.ARW':
-                    is_raw = True
-                    image_name = f"{image_name.split('.')[0]}.jpg"
-                    with rawpy.imread(filename) as raw:
-                        img = raw.postprocess()
+            #     is_raw = False
+            #     if fileformat == '.arw' or fileformat == '.ARW':
+            #         is_raw = True
+            #         image_name = f"{image_name.split('.')[0]}.jpg"
+            #         with rawpy.imread(filename) as raw:
+            #             img = raw.postprocess()
 
-                else:
-                    img = Image.open(filename)
+            #     else:
+            #         img = Image.open(filename)
                     
 
-                label = self.get_annotation(dataset_name=dataset_name, image_name=image_name, is_raw=is_raw)
-                tup = (img, label)
-                data.append(tup)
+            #     label = self.get_annotation(dataset_name=dataset_name, image_name=image_name, is_raw=is_raw)
+            #     tup = (img, label)
+            #     data.append(tup)
         return data
 
 
