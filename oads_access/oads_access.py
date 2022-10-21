@@ -192,7 +192,7 @@ class OADS_Access():
 
 
     def get_annotation_size(self, obj:dict, is_raw):
-        ((left, top), (right, bottom)) = get_annotation_dimensions(obj, is_raw=is_raw)
+        ((left, top), (right, bottom)), _, _ = get_annotation_dimensions(obj, is_raw=is_raw)
         height = bottom - top
         width = right - left
 
@@ -219,7 +219,7 @@ class OADS_Access():
 
         for (_, label) in data:
             for obj in label['objects']:
-                height, width = self.get_annotation_size(obj, is_raw=label['is_raw'])
+                height, width, _, _ = self.get_annotation_size(obj, is_raw=label['is_raw'])
                 _max_height = max(_max_height, height)
                 _max_width = max(_max_width, width)
 
@@ -273,7 +273,7 @@ class OADS_Access():
         for (img, label) in data_iterator:
             for obj in label['objects']:
                 if exclude_oversized_crops:
-                    height, width = self.get_annotation_size(obj, is_raw=label['is_raw'])
+                    height, width, min_size, max_size = self.get_annotation_size(obj, is_raw=label['is_raw'], min_size=min_size, max_size=max_size)
                     if height > max_size[0] or width > max_size[1]:
                         continue
                 crop = get_image_crop(img=img, object=obj, min_size=min_size, max_size=max_size, is_raw=label['is_raw'])
@@ -292,15 +292,19 @@ class OADS_Access():
 
         return np.array(means), np.array(stds)
 
-def get_annotation_dimensions(obj:dict, is_raw):
+def get_annotation_dimensions(obj:dict, is_raw, min_size:tuple=None, max_size:tuple=None):
     ((left, top), (right, bottom)) = obj['points']['exterior']
     if is_raw:
         left = left * 4
         top = top * 4
         right = right * 4
         bottom = bottom * 4
+        if min_size is not None:
+            min_size = tuple(np.multiply(min_size, 4))
+        if max_size is not None:
+            max_size = tuple(np.multiply(max_size, 4))
 
-    return ((left, top), (right, bottom))
+    return ((left, top), (right, bottom)), min_size, max_size
 
 # create crops from image
 def get_image_crop(img:"np.ndarray|list|Image.Image", object:dict, min_size:tuple, max_size:tuple=None, is_raw:bool=False):
@@ -328,7 +332,7 @@ def get_image_crop(img:"np.ndarray|list|Image.Image", object:dict, min_size:tupl
     ----------
     >>> crop = get_image_crop(img=image, object=obj, min_size=(50, 50)) 
     """
-    ((left, top), (right, bottom)) = get_annotation_dimensions(object, is_raw=is_raw)
+    ((left, top), (right, bottom)), min_size, max_size = get_annotation_dimensions(object, is_raw=is_raw, min_size=min_size, max_size=max_size)
 
     # Check if crop would be too small
     if right-left < min_size[0]:
@@ -424,7 +428,7 @@ def add_label_box_to_axis(label:dict, ax, color:str='r', add_title:bool=False):
         img_height, img_width = label['size']['height'], label['size']['width']
         for obj in label['objects']:
             if obj['geometryType'] == 'rectangle':
-                ((left, top), (right, bottom)) = get_annotation_dimensions(obj, is_raw=label['is_raw'])
+                ((left, top), (right, bottom)), _, _ = get_annotation_dimensions(obj, is_raw=label['is_raw'])
                 rec = Rectangle(xy=(left, top), height=bottom-top, width=right-left, fill=False, color=color)
                 ax.add_patch(rec)
 
