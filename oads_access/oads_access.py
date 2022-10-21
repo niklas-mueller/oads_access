@@ -103,7 +103,7 @@ class OADS_Access():
         """
         return {x['id']: x['title'] for x in self.get_meta_info()['classes']}
 
-    def get_annotation(self, dataset_name, image_name):
+    def get_annotation(self, dataset_name, image_name, is_raw=False):
         """get_annotation
 
         Get the annotations for a specific dataset+image pair.
@@ -129,6 +129,7 @@ class OADS_Access():
         if os.path.exists(path):
             with open(path, 'r') as f:
                 content = json.load(f)
+                content['is_raw'] = is_raw
             return content
         else:
             return None
@@ -171,8 +172,11 @@ class OADS_Access():
                 fileformat = os.path.splitext(filename)[-1]
                 if file_formats is not None and fileformat not in file_formats:
                     continue
-
+                
+                is_raw = False
                 if fileformat == '.arw' or fileformat == '.ARW':
+                    is_raw = True
+                    image_name = f"{image_name.split('.')[0]}.jpg"
                     with rawpy.imread(filename) as raw:
                         img = raw.postprocess()
 
@@ -180,13 +184,15 @@ class OADS_Access():
                     img = Image.open(filename)
                     
 
-                label = self.get_annotation(dataset_name=dataset_name, image_name=image_name)
+                label = self.get_annotation(dataset_name=dataset_name, image_name=image_name, is_raw=is_raw)
                 tup = (img, label)
                 data.append(tup)
         return data
 
-    def get_annotation_size(self, obj:dict):
-        ((left, top), (right, bottom)) = obj['points']['exterior']
+
+
+    def get_annotation_size(self, obj:dict, is_raw):
+        ((left, top), (right, bottom)) = get_annotation_dimensions(obj, is_raw=is_raw)
         height = bottom - top
         width = right - left
 
@@ -213,7 +219,7 @@ class OADS_Access():
 
         for (_, label) in data:
             for obj in label['objects']:
-                height, width = self.get_annotation_size(obj)
+                height, width = self.get_annotation_size(obj, is_raw=label['is_raw'])
                 _max_height = max(_max_height, height)
                 _max_width = max(_max_width, width)
 
@@ -267,10 +273,10 @@ class OADS_Access():
         for (img, label) in data_iterator:
             for obj in label['objects']:
                 if exclude_oversized_crops:
-                    height, width = self.get_annotation_size(obj)
+                    height, width = self.get_annotation_size(obj, is_raw=label['is_raw'])
                     if height > max_size[0] or width > max_size[1]:
                         continue
-                crop = get_image_crop(img=img, object=obj, min_size=min_size, max_size=max_size)
+                crop = get_image_crop(img=img, object=obj, min_size=min_size, max_size=max_size, is_raw=label['is_raw'])
                 crop_iterator.append((crop, obj))
 
         return crop_iterator
@@ -286,8 +292,18 @@ class OADS_Access():
 
         return np.array(means), np.array(stds)
 
+def get_annotation_dimensions(obj:dict, is_raw):
+    ((left, top), (right, bottom)) = obj['points']['exterior']
+    if is_raw:
+        left = left * 4
+        top = top * 4
+        right = right * 4
+        bottom = bottom * 4
+
+    return ((left, top), (right, bottom))
+
 # create crops from image
-def get_image_crop(img:"np.ndarray|list|Image.Image", object:dict, min_size:tuple, max_size:tuple=None):
+def get_image_crop(img:"np.ndarray|list|Image.Image", object:dict, min_size:tuple, max_size:tuple=None, is_raw:bool=False):
     """get_image_crop
 
     Using the annotation box object, crop the original image to the given size.
@@ -312,7 +328,7 @@ def get_image_crop(img:"np.ndarray|list|Image.Image", object:dict, min_size:tupl
     ----------
     >>> crop = get_image_crop(img=image, object=obj, min_size=(50, 50)) 
     """
-    ((left, top), (right, bottom)) = object['points']['exterior']
+    ((left, top), (right, bottom)) = get_annotation_dimensions(object, is_raw=is_raw)
 
     # Check if crop would be too small
     if right-left < min_size[0]:
@@ -376,7 +392,7 @@ def plot_crops_from_data_tuple(data_tuple, min_size=(0, 0), figsize=(18,30), max
     fig, ax = plt.subplots(_n,_n, figsize=figsize)
 
     for axis, obj in zip(ax.flatten(), label['objects']):
-        crop = get_image_crop(img, obj, min_size=min_size, max_size=max_size)
+        crop = get_image_crop(img, obj, min_size=min_size, max_size=max_size, is_raw=label['is_raw'])
         axis.imshow(crop)
         axis.set_title(obj['classTitle'])
         axis.axis('off')
@@ -408,7 +424,7 @@ def add_label_box_to_axis(label:dict, ax, color:str='r', add_title:bool=False):
         img_height, img_width = label['size']['height'], label['size']['width']
         for obj in label['objects']:
             if obj['geometryType'] == 'rectangle':
-                ((left, top), (right, bottom)) = obj['points']['exterior']
+                ((left, top), (right, bottom)) = get_annotation_dimensions(obj, is_raw=label['is_raw'])
                 rec = Rectangle(xy=(left, top), height=bottom-top, width=right-left, fill=False, color=color)
                 ax.add_patch(rec)
 
