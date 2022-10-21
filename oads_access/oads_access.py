@@ -134,7 +134,7 @@ class OADS_Access():
         else:
             return None
 
-    def get_data_iterator(self, dataset_names=None, file_formats:list=None):
+    def get_data_iterator(self, dataset_names=None, file_formats:list=None, max_number_images:int=None):
         """get_data_iterator
 
         Get a list of pairs of images and labels. 
@@ -158,9 +158,15 @@ class OADS_Access():
             dataset_names = self.datasets
 
         data = []
+        i = 0
         for dataset_name in dataset_names:
+            if max_number_images is not None and i >= max_number_images:
+                break
             image_name:str
             for image_name in self.image_names[dataset_name]:
+                if max_number_images is not None and i >= max_number_images:
+                    break
+
                 if self.has_raw_images:
                     filename = os.path.join(self.img_dir, 'ARW', f"{image_name.split('.')[0]}.ARW")
                     if not os.path.exists(filename):
@@ -187,6 +193,8 @@ class OADS_Access():
                 label = self.get_annotation(dataset_name=dataset_name, image_name=image_name, is_raw=is_raw)
                 tup = (img, label)
                 data.append(tup)
+                i += 1
+
         return data
 
 
@@ -227,7 +235,7 @@ class OADS_Access():
 
     def get_train_val_test_split(self, data_iterator:"list|np.ndarray" = None, val_size:float=0.1, test_size:float=0.1, 
                                     use_crops:bool=False, min_size:tuple=(0,0), max_size:tuple=None, file_formats:list=None, 
-                                    exclude_oversized_crops:bool=False):
+                                    exclude_oversized_crops:bool=False, max_number_images:int=None):
         """get_train_val_test_split
 
         Split the data_iterator into train, validation and test sets.
@@ -258,7 +266,7 @@ class OADS_Access():
             if use_crops:
                 data_iterator = self.get_crop_iterator(min_size=min_size, max_size=max_size, file_formats=file_formats, exclude_oversized_crops=exclude_oversized_crops)
             else:
-                data_iterator = self.get_data_iterator(file_formats=file_formats)
+                data_iterator = self.get_data_iterator(file_formats=file_formats, max_number_images=max_number_images)
 
         train_data, test_data = train_test_split(data_iterator, test_size=val_size+test_size)
         test_data, val_data = train_test_split(test_data, test_size=test_size / (val_size+test_size))
@@ -266,9 +274,9 @@ class OADS_Access():
         return train_data, val_data, test_data
 
     def get_crop_iterator(self, data_iterator:"list|np.ndarray" = None, min_size=(0,0), max_size:tuple=None, 
-                            file_formats:list=None, exclude_oversized_crops:bool=False):
+                            file_formats:list=None, exclude_oversized_crops:bool=False, max_number_images:int=None):
         if data_iterator is None:
-            data_iterator = self.get_data_iterator(file_formats=file_formats)
+            data_iterator = self.get_data_iterator(file_formats=file_formats, max_number_images=max_number_images)
         
         crop_iterator = []
         for (img, label) in data_iterator:

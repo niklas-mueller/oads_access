@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 from model import visTensor, TestModel, evaluate
 from result_manager.result_manager import ResultManager
-from oads_access.oads_access import OADS_Access, OADSImageDataset
+from oads_access.oads_access import OADS_Access, OADSImageDataset, plot_image_in_color_spaces
 from retina_model import RetinaCortexModel
 import torchvision.transforms as transforms
 import torch
@@ -31,7 +31,7 @@ if __name__ == '__main__':
     if not torch.cuda.is_available():
         print("GPU not available. Exiting ....")
         device = torch.device('cpu')
-        exit(1)
+        # exit(1)
     else:
         device = torch.device("cuda")
         print("Using GPU!")
@@ -46,12 +46,23 @@ if __name__ == '__main__':
     oads = OADS_Access(home)
 
     result_manager = ResultManager(root=args.output_dir)
+    fig = oads.plot_image_size_distribution(use_crops=True, figsize=(30, 30))
+    result_manager.save_pdf(figs=[fig], filename='image_size_distribution.pdf')
+    exit(1)
 
     # get train, val, test split, using crops if specific size
     size = (200, 200)
-    train_data, val_data, test_data = oads.get_train_val_test_split(use_crops=True, min_size=size, max_size=size)
+    train_data, val_data, test_data = oads.get_train_val_test_split(use_crops=True, min_size=size, max_size=size, max_number_images=20)
     print(f"Loaded data with train_data.shape: {len(train_data)}")
+
     
+    figs = []
+    for img in train_data:
+        fig = plot_image_in_color_spaces(np.array(img[0]), cmap_opponent='gray')
+        figs.append(fig)
+    result_manager.save_pdf(figs=figs, filename=f'image_in_color_spaces_{size[0]}x{size[1]}.pdf')
+    exit(1)
+
     input_channels = np.array(train_data[0][0]).shape[-1]
 
     output_channels = len(oads.get_class_mapping())
