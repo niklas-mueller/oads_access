@@ -210,7 +210,7 @@ class OADS_Access():
 
         return height, width
 
-    def get_maximum_annotation_size(self):
+    def get_maximum_annotation_size(self, data_iterator:list=None):
         """get_maximum_annotation_size
 
         Compute the smallest annotation box size that is equal or bigger than all annotation boxes in the dataset.
@@ -224,14 +224,15 @@ class OADS_Access():
         ----------
         >>> 
         """
-        data = self.get_data_iterator()
+        if data_iterator is None:
+            data_iterator = self.get_data_iterator()
 
         _max_height = 0
         _max_width = 0
 
-        for (_, label) in data:
+        for (_, label) in data_iterator:
             for obj in label['objects']:
-                height, width, _, _ = self.get_annotation_size(obj, is_raw=label['is_raw'])
+                height, width = self.get_annotation_size(obj, is_raw=label['is_raw'])
                 _max_height = max(_max_height, height)
                 _max_width = max(_max_width, width)
 
@@ -239,7 +240,7 @@ class OADS_Access():
 
     def get_train_val_test_split(self, data_iterator:"list|np.ndarray" = None, val_size:float=0.1, test_size:float=0.1, 
                                     use_crops:bool=False, min_size:tuple=(0,0), max_size:tuple=None, file_formats:list=None, 
-                                    exclude_oversized_crops:bool=False, max_number_images:int=None):
+                                    exclude_oversized_crops:bool=False):
         """get_train_val_test_split
 
         Split the data_iterator into train, validation and test sets.
@@ -270,7 +271,7 @@ class OADS_Access():
             if use_crops:
                 data_iterator = self.get_crop_iterator(min_size=min_size, max_size=max_size, file_formats=file_formats, exclude_oversized_crops=exclude_oversized_crops)
             else:
-                data_iterator = self.get_data_iterator(file_formats=file_formats, max_number_images=max_number_images)
+                data_iterator = self.get_data_iterator(file_formats=file_formats)
 
         train_data, test_data = train_test_split(data_iterator, test_size=val_size+test_size)
         test_data, val_data = train_test_split(test_data, test_size=test_size / (val_size+test_size))
@@ -278,9 +279,9 @@ class OADS_Access():
         return train_data, val_data, test_data
 
     def get_crop_iterator(self, data_iterator:"list|np.ndarray" = None, min_size=(0,0), max_size:tuple=None, 
-                            file_formats:list=None, exclude_oversized_crops:bool=False, max_number_images:int=None):
+                            file_formats:list=None, exclude_oversized_crops:bool=False):
         if data_iterator is None:
-            data_iterator = self.get_data_iterator(file_formats=file_formats, max_number_images=max_number_images)
+            data_iterator = self.get_data_iterator(file_formats=file_formats)
         
         crop_iterator = []
         for (img, label) in data_iterator:
