@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
+from pytorch_utils.src.pytorch_utils.pytorch_utils import *
 
 if __name__ == '__main__':
     # Instantiate the parser
@@ -107,69 +108,74 @@ if __name__ == '__main__':
     elif args.optimizer == 'rmsprop':
         optimizer = optim.RMSprop(model.parameters(), lr=0.001, momentum=0.9)
 
-    
-    results = {}
-    eval_begin = evaluate(testloader, model, criterion=criterion)
-    results['eval_pre_training'] = eval_begin
+    eval_valid_every = (len(trainloader) / int(args.batch_size)) / 5
 
-    print(f"Succesfully loaded everything with random test accuracy of {eval_begin['accuracy']}")
-    # exit(1)
+    train(model=model, trainloader=trainloader, valloader=valloader, device=device,
+            loss_fn=criterion, optimizer=optimizer, n_epochs=int(args.n_epochs), result_manager=result_manager,
+            testloader=testloader, eval_valid_every=eval_valid_every)
 
-    epoch_times = []
-    for epoch in range(int(args.n_epochs)):  # loop over the dataset multiple times
-        start_time_epoch = time.time()
-        print(f"Running epoch {epoch}")
-        running_loss = 0.0
-        for i, data in enumerate(trainloader):
-            # get the inputs; data is a list of [inputs, labels]
-            inputs, labels = data
-            inputs = inputs.to(device)
-            labels = labels.to(device)
+    # results = {}
+    # eval_begin = evaluate(testloader, model, criterion=criterion)
+    # results['eval_pre_training'] = eval_begin
 
-            # zero the parameter gradients
-            optimizer.zero_grad()
+    # print(f"Succesfully loaded everything with random test accuracy of {eval_begin['accuracy']}")
+    # # exit(1)
 
-            # forward + backward + optimize
-            outputs = model(inputs)
-            loss = criterion(outputs, labels)
-            loss.backward()
-            optimizer.step()
+    # epoch_times = []
+    # for epoch in range(int(args.n_epochs)):  # loop over the dataset multiple times
+    #     start_time_epoch = time.time()
+    #     print(f"Running epoch {epoch}")
+    #     running_loss = 0.0
+    #     for i, data in enumerate(trainloader):
+    #         # get the inputs; data is a list of [inputs, labels]
+    #         inputs, labels = data
+    #         inputs = inputs.to(device)
+    #         labels = labels.to(device)
 
-            # print statistics
-            running_loss += loss.item()
-            if i % 2000 == 1999:    # print every 2000 mini-batches
-                print(f'[{epoch + 1}, {i + 1:5d}] loss: {running_loss / 2000:.3f}')
-                running_loss = 0.0
+    #         # zero the parameter gradients
+    #         optimizer.zero_grad()
 
-        end_time_epoch = time.time()
-        epoch_times.append(end_time_epoch - start_time_epoch)
+    #         # forward + backward + optimize
+    #         outputs = model(inputs)
+    #         loss = criterion(outputs, labels)
+    #         loss.backward()
+    #         optimizer.step()
 
-    print(f'Finished Training with loss: {loss.item()}')
-    print(f'Average time per epoch for {args.n_epochs} epochs: {np.mean(epoch_times)}')
+    #         # print statistics
+    #         running_loss += loss.item()
+    #         if i % 2000 == 1999:    # print every 2000 mini-batches
+    #             print(f'[{epoch + 1}, {i + 1:5d}] loss: {running_loss / 2000:.3f}')
+    #             running_loss = 0.0
 
-    eval = evaluate(loader=testloader, model=model)
-    eval['training_loss'] = loss.item()
+    #     end_time_epoch = time.time()
+    #     epoch_times.append(end_time_epoch - start_time_epoch)
 
-    results['eval_post_training'] = eval
-    results['average_epoch_time'] = np.mean(epoch_times)
+    # print(f'Finished Training with loss: {loss.item()}')
+    # print(f'Average time per epoch for {args.n_epochs} epochs: {np.mean(epoch_times)}')
 
-    # torch.save(model.state_dict(), os.path.join(args.output_dir, f'{args.model_name}.pth'))
+    # eval = evaluate(loader=testloader, model=model)
+    # eval['training_loss'] = loss.item()
 
-    result_manager.save_result(results, filename='result_dict.yml', overwrite=True)
-    result_manager.save_model(model, filename='model.pth', overwrite=True)
+    # results['eval_post_training'] = eval
+    # results['average_epoch_time'] = np.mean(epoch_times)
 
-    figs = []
-    for name, module in model.module.named_modules():
-        if not isinstance(module, nn.Sequential):
-            if type(module) == nn.modules.conv.Conv2d or type(module) == nn.Conv2d:
-                filter = module.weight.cpu().data.clone()
-            else:
-                continue
-            fig = visTensor(filter, ch=0, allkernels=True)
-            figs.append(fig)
-            plt.axis('off')
-            plt.title(f'Layer: {name}')
-            plt.ioff()
-            # plt.show()
+    # # torch.save(model.state_dict(), os.path.join(args.output_dir, f'{args.model_name}.pth'))
 
-    result_manager.save_pdf(figs=figs, filename='layer_visualisation_after_training.pdf')
+    # result_manager.save_result(results, filename='result_dict.yml', overwrite=True)
+    # result_manager.save_model(model, filename='model.pth', overwrite=True)
+
+    # figs = []
+    # for name, module in model.module.named_modules():
+    #     if not isinstance(module, nn.Sequential):
+    #         if type(module) == nn.modules.conv.Conv2d or type(module) == nn.Conv2d:
+    #             filter = module.weight.cpu().data.clone()
+    #         else:
+    #             continue
+    #         fig = visTensor(filter, ch=0, allkernels=True)
+    #         figs.append(fig)
+    #         plt.axis('off')
+    #         plt.title(f'Layer: {name}')
+    #         plt.ioff()
+    #         # plt.show()
+
+    # result_manager.save_pdf(figs=figs, filename='layer_visualisation_after_training.pdf')
