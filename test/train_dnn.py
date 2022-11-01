@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
-from pytorch_utils.src.pytorch_utils.pytorch_utils import *
+from pytorch_utils.pytorch_utils import *
 
 if __name__ == '__main__':
     # Instantiate the parser
@@ -44,7 +44,9 @@ if __name__ == '__main__':
     # initialize data access
     # home = '../../data/oads/mini_oads/'
     home = args.input_dir
-    oads = OADS_Access(home)
+    size = (200, 200)
+    oads = OADS_Access(home, min_size_crops=size, max_size_crops=size)
+    oads.prepare_crops()
 
     result_manager = ResultManager(root=args.output_dir)
 
@@ -53,9 +55,9 @@ if __name__ == '__main__':
     # exit(1)
 
     # get train, val, test split, using crops if specific size
-    size = (200, 200)
-    train_data, val_data, test_data = oads.get_train_val_test_split(use_crops=True, min_size=size, max_size=size)
-    print(f"Loaded data with train_data.shape: {len(train_data)}")
+    # train_data, val_data, test_data = oads.get_train_val_test_split(use_crops=True, min_size=size, max_size=size)
+    train_ids, val_ids, test_ids = oads.get_train_val_test_split_indices(use_crops=True)
+    print(f"Loaded data with train_data.shape: {len(train_ids)}")
 
     
     # figs = []
@@ -65,7 +67,7 @@ if __name__ == '__main__':
     # result_manager.save_pdf(figs=figs, filename=f'image_in_color_spaces_{size[0]}x{size[1]}.pdf')
     # exit(1)
 
-    input_channels = np.array(train_data[0][0]).shape[-1]
+    input_channels = size[0] #np.array(train_data[0][0]).shape[-1]
 
     output_channels = len(oads.get_class_mapping())
     class_index_mapping = {key: index for index, key in enumerate(list(oads.get_class_mapping().keys()))}
@@ -82,19 +84,24 @@ if __name__ == '__main__':
 
     batch_size = 32
 
-    means, stds = oads.get_dataset_stats(train_data)
+    # means, stds = oads.get_dataset_stats(train_data)
     # if not means.shape == (3,):
     #     print(means.shape, stds.shape)
 
     # Get the custom dataset and dataloader
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize(means.mean(axis=0), stds.mean(axis=0))
+        # transforms.Normalize(means.mean(axis=0), stds.mean(axis=0))
     ])
 
-    traindataset = OADSImageDataset(data=train_data, class_index_mapping=class_index_mapping, transform=transform, device=device)
-    valdataset = OADSImageDataset(data=val_data, class_index_mapping=class_index_mapping, transform=transform, device=device)
-    testdataset = OADSImageDataset(data=test_data, class_index_mapping=class_index_mapping, transform=transform, device=device)
+    # traindataset = OADSImageDataset(data=train_data, class_index_mapping=class_index_mapping, transform=transform, device=device)
+    # valdataset = OADSImageDataset(data=val_data, class_index_mapping=class_index_mapping, transform=transform, device=device)
+    # testdataset = OADSImageDataset(data=test_data, class_index_mapping=class_index_mapping, transform=transform, device=device)
+
+    traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, class_index_mapping=class_index_mapping, transform=transform, device=device)
+    valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True, class_index_mapping=class_index_mapping, transform=transform, device=device)
+    testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True, class_index_mapping=class_index_mapping, transform=transform, device=device)
+
 
     trainloader = DataLoader(traindataset, batch_size=batch_size, shuffle=True, num_workers=1)
     valloader = DataLoader(valdataset, batch_size=batch_size, shuffle=True, num_workers=1)
@@ -108,7 +115,7 @@ if __name__ == '__main__':
     elif args.optimizer == 'rmsprop':
         optimizer = optim.RMSprop(model.parameters(), lr=0.001, momentum=0.9)
 
-    eval_valid_every = (len(trainloader) / int(args.batch_size)) / 5
+    eval_valid_every = (len(trainloader) / int(batch_size)) / 5
 
     train(model=model, trainloader=trainloader, valloader=valloader, device=device,
             loss_fn=criterion, optimizer=optimizer, n_epochs=int(args.n_epochs), result_manager=result_manager,
