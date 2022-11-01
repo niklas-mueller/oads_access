@@ -13,7 +13,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
-from pytorch_utils.src.pytorch_utils.pytorch_utils import *
+# from pytorch_utils.src.pytorch_utils.pytorch_utils import *
+from pytorch_utils.pytorch_utils import *
 
 if __name__ == '__main__':
     # Instantiate the parser
@@ -25,6 +26,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_epochs', help='Number of epochs for training.')
     parser.add_argument('--optimizer', help='Optimizer to use for training', default='sgd')
     parser.add_argument('--model_type', help='Model to use for training. Can be "test" or "retina_cortex"', default='retina_cortex')
+    parser.add_argument('--continue_model_path', help='Path to load model from to continue training.', default=None)
 
     args = parser.parse_args()
 
@@ -48,15 +50,15 @@ if __name__ == '__main__':
 
     result_manager = ResultManager(root=args.output_dir)
 
-    # fig = oads.plot_image_size_distribution(use_crops=True, figsize=(30, 30))
-    # result_manager.save_pdf(figs=[fig], filename='image_size_distribution.pdf')
-    # exit(1)
 
     # get train, val, test split, using crops if specific size
     size = (200, 200)
     train_data, val_data, test_data = oads.get_train_val_test_split(use_crops=True, min_size=size, max_size=size)
     print(f"Loaded data with train_data.shape: {len(train_data)}")
 
+    # fig = oads.plot_image_size_distribution(use_crops=True, figsize=(20, 20))
+    # result_manager.save_pdf(figs=[fig], filename='image_size_distribution.pdf')
+    # exit(1)
     
     # figs = []
     # for img in train_data:
@@ -74,12 +76,14 @@ if __name__ == '__main__':
     if args.model_type == 'test':
         model = TestModel(input_channels=input_channels, output_channels=output_channels, input_shape=size)
         model = torch.nn.DataParallel(model)
-        model = model.to(device)
     elif args.model_type == 'retina_cortex':
         model = RetinaCortexModel(n_retina_layers=2, n_retina_in_channels=input_channels, n_retina_out_channels=2, retina_width=32,
                                 input_shape=size, kernel_size=(9,9), n_vvs_layers=2, out_features=output_channels, vvs_width=32)
 
+    if args.continue_model_path is not None and os.path.exists(args.continue_model_path):
+        model.load_state_dict(torch.load(args.continue_model_path))
 
+    model = model.to(device)
     batch_size = 32
 
     means, stds = oads.get_dataset_stats(train_data)
@@ -96,9 +100,9 @@ if __name__ == '__main__':
     valdataset = OADSImageDataset(data=val_data, class_index_mapping=class_index_mapping, transform=transform, device=device)
     testdataset = OADSImageDataset(data=test_data, class_index_mapping=class_index_mapping, transform=transform, device=device)
 
-    trainloader = DataLoader(traindataset, batch_size=batch_size, shuffle=True, num_workers=1)
-    valloader = DataLoader(valdataset, batch_size=batch_size, shuffle=True, num_workers=1)
-    testloader = DataLoader(testdataset, batch_size=batch_size, shuffle=True, num_workers=1)
+    trainloader = DataLoader(traindataset, batch_size=batch_size, shuffle=True, num_workers=16)
+    valloader = DataLoader(valdataset, batch_size=batch_size, shuffle=True, num_workers=16)
+    testloader = DataLoader(testdataset, batch_size=batch_size, shuffle=True, num_workers=16)
 
 
     criterion = nn.CrossEntropyLoss()
@@ -108,7 +112,7 @@ if __name__ == '__main__':
     elif args.optimizer == 'rmsprop':
         optimizer = optim.RMSprop(model.parameters(), lr=0.001, momentum=0.9)
 
-    eval_valid_every = (len(trainloader) / int(args.batch_size)) / 5
+    eval_valid_every = (len(trainloader) / int(batch_size)) / 5
 
     train(model=model, trainloader=trainloader, valloader=valloader, device=device,
             loss_fn=criterion, optimizer=optimizer, n_epochs=int(args.n_epochs), result_manager=result_manager,

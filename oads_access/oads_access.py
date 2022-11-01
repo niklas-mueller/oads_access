@@ -337,20 +337,22 @@ class OADS_Access():
 
         return np.array(means), np.array(stds)
 
-    def plot_image_size_distribution(self, use_crops: bool, file_formats: list = None, figsize: tuple = (10, 5)):
+    def plot_image_size_distribution(self, use_crops: bool, data_iterator:list=None, file_formats: list = None, figsize: tuple = (10, 5)):
 
         # Make scatter plot of x and y sizes and each images as dot
-        train_data, val_data, test_data = self.get_train_val_test_split(
-            use_crops=use_crops, file_formats=file_formats, exclude_oversized_crops=False)
+        if data_iterator is None:
+            train_data, val_data, test_data = self.get_train_val_test_split(
+                use_crops=use_crops, file_formats=file_formats, exclude_oversized_crops=False)
+            data_iterator = np.concatenate((train_data, val_data, test_data))
         height_sizes = []
         width_sizes = []
-        for img, _ in np.concatenate((train_data, val_data, test_data)):
+        for img, _ in data_iterator:
             (height, width, c) = np.array(img).shape
-
             height_sizes.append(height)
             width_sizes.append(width)
         fig, ax = plt.subplots(1, 1, figsize=figsize)
         ax.scatter(height_sizes, width_sizes)
+        print(len(height_sizes), len(width_sizes))
         ax.set_xlabel('Image height')
         ax.set_ylabel('Image width')
 
