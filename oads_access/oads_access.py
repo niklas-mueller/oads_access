@@ -317,12 +317,14 @@ class OADS_Access():
 
         return train_data, val_data, test_data
 
-    def get_train_val_test_split_indices(self, use_crops:bool, val_size:float=0.1, test_size:float=0.1):
+    def get_train_val_test_split_indices(self, use_crops:bool, val_size:float=0.1, test_size:float=0.1, remove_duplicates:bool=True):
         if use_crops:
             image_ids = [(class_name, image_name) for class_name, image_names in self.crop_files_names.items() for image_name in image_names]
         else:
             image_ids = [(dataset_name, image_name) for dataset_name, image_names in self.image_names.items() for image_name in image_names]
 
+        if remove_duplicates:
+            image_ids = list(set(image_ids))
         train_ids, test_ids = train_test_split(image_ids, test_size=val_size+test_size)
         test_ids, val_ids = train_test_split(test_ids, test_size=test_size / (val_size+test_size))
 
@@ -340,14 +342,17 @@ class OADS_Access():
 
     def _prepare_crops_dataset(self, dataset_name):
         for image_name in self.image_names[dataset_name]:
-            (img, label) = self.load_image(dataset_name=dataset_name, image_name=image_name)
-            _ = self.make_and_save_crops_from_image(img=img, label=label, save_files=True)
+            tup = self.load_image(dataset_name=dataset_name, image_name=image_name)
+            if tup is not None:
+                (img, label) = tup
+                _ = self.make_and_save_crops_from_image(img=img, label=label, save_files=True)
 
     def prepare_crops(self, dataset_names:list=None):
         if dataset_names is None:
             dataset_names = self.datasets
 
         with multiprocessing.Pool() as pool:
+            print(f"Number of processes: {pool._processes}")
             _ = list(tqdm.tqdm(pool.imap(self._prepare_crops_dataset, dataset_names), total=len(dataset_names)))
         
 
@@ -397,41 +402,80 @@ class OADS_Access():
 
         return crops
 
-    def get_dataset_stats(self, data_iterator: "list|np.ndarray"):
+    def get_dataset_stats(self):
         means, stds = [], []
+
+        results = self.apply_per_image(lambda x: (np.mean(np.array(x[0]), axis=(0, 1)), np.std(np.array(x[0]), axis=(0, 1))))
+
+        for _, images in results.items():
+            for _, (m, s) in images.items():
+                means.append(m)
+                stds.append(s)
         
-        for img, _ in data_iterator:
-            # if self.use_crops:
-            #     tup = self.oads_access.load_crop(class_name=dataset_name, image_name=image_name)
-            # else:
-            #     tup = self.oads_access.load_image(dataset_name=dataset_name, image_name=image_name)
-            # img, label = tup
-            img_np = np.array(img)
-            mean = np.mean(img_np, axis=(0, 1))
-            std = np.std(img_np, axis=(0, 1))
-            means.append(mean)
-            stds.append(std)
+        # for img, _ in data_iterator:
+        #     img_np = np.array(img)
+        #     mean = np.mean(img_np, axis=(0, 1))
+        #     std = np.std(img_np, axis=(0, 1))
+        #     means.append(mean)
+        #     stds.append(std)
 
         return np.array(means), np.array(stds)
 
     def plot_image_size_distribution(self, use_crops: bool, file_formats: list = None, figsize: tuple = (10, 5)):
 
         # Make scatter plot of x and y sizes and each images as dot
-        train_data, val_data, test_data = self.get_train_val_test_split(
-            use_crops=use_crops, file_formats=file_formats, exclude_oversized_crops=False)
+        # train_data, val_data, test_data = self.get_train_val_test_split(
+        #     use_crops=use_crops, file_formats=file_formats, exclude_oversized_crops=False)
+        results = self.apply_per_image(get_image_size, max_number_images=10000)
+        
         height_sizes = []
         width_sizes = []
-        for img, _ in np.concatenate((train_data, val_data, test_data)):
-            (height, width, c) = np.array(img).shape
+        for _, images in results.items():
+            for _, (height, width) in images.items():
+                height_sizes.append(height)
+                width_sizes.append(width)
+        # for img, _ in np.concatenate((train_data, val_data, test_data)):
+        #     (height, width, c) = np.array(img).shape
 
-            height_sizes.append(height)
-            width_sizes.append(width)
+        #     height_sizes.append(height)
+        #     width_sizes.append(width)
         fig, ax = plt.subplots(1, 1, figsize=figsize)
         ax.scatter(height_sizes, width_sizes)
         ax.set_xlabel('Image height')
         ax.set_ylabel('Image width')
 
         return fig
+
+    def apply_per_crop(self, custom_function, max_number_crops:int=None):
+        results = {}
+
+        crop_counter = 0
+        for dataset_name in self.crop_files_names.keys():
+            results[dataset_name] = {}
+            for crop_name in self.crop_files_names[dataset_name]:
+                tup = self.load_crop(class_name=dataset_name, image_name=crop_name)
+                if tup is not None:
+                    if max_number_crops is not None and crop_counter >= max_number_crops:
+                        return results
+                    results[dataset_name][crop_name] = custom_function(tup)
+                    crop_counter += 1
+
+        return results
+
+    def apply_per_image(self, custom_function, max_number_images:int=None):
+        results = {}
+        image_counter = 0
+        for dataset_name in self.datasets:
+            results[dataset_name] = {}
+            for image_name in self.image_names[dataset_name]:
+                tup = self.load_image(dataset_name=dataset_name, image_name=image_name)
+                if tup is not None:
+                    if max_number_images is not None and image_counter >= max_number_images:
+                        return results
+                    results[dataset_name][image_name] = custom_function(tup)
+                    image_counter += 1
+
+        return results
 
     def apply_custom_data_augmentation(self, data_iterator: list, augmentation_function):
         return list(map(augmentation_function, data_iterator))
@@ -471,6 +515,11 @@ class OADS_Access():
             np.array(data_tuple[1]['points']['exterior'])[::, ::-1, :])
         return (img, label)
 
+
+def get_image_size(tup):
+    img, _ = tup
+    (height, width, c) = np.array(img).shape
+    return height, width
 
 def get_annotation_dimensions(obj: dict, is_raw, min_size: tuple = None, max_size: tuple = None):
     ((left, top), (right, bottom)) = obj['points']['exterior']
@@ -719,12 +768,6 @@ class OADSImageDataset(Dataset):
         self.oads_access = oads_access
         self.use_crops = use_crops
         self.item_ids = item_ids
-        # if self.use_crops:
-        #     self.image_ids = [(class_name, image_name) for class_name, image_names in self.oads_access.crop_files_names.items() for image_name in image_names]
-        # else:
-        #     self.image_ids = [(dataset_name, image_name) for dataset_name, image_names in self.oads_access.image_names.items() for image_name in image_names]
-
-        # train test split
         
         self.transform = transform
         self.target_transform = target_transform
@@ -737,13 +780,13 @@ class OADSImageDataset(Dataset):
         return len(self.item_ids)
 
     def __getitem__(self, idx):
-        # batch_IDs = self.image_ids[idx*self.batch_size : (idx+1)*self.batch_size]
-        # images = []
         dataset_name, image_name = self.item_ids[idx]
-        if self.use_crops:
-            tup = self.oads_access.load_crop(class_name=dataset_name, image_name=image_name)
-        else:
-            tup = self.oads_access.load_image(dataset_name=dataset_name, image_name=image_name)
+        tup = None
+        while tup is None:
+            if self.use_crops:
+                tup = self.oads_access.load_crop(class_name=dataset_name, image_name=image_name)
+            else:
+                tup = self.oads_access.load_image(dataset_name=dataset_name, image_name=image_name)
         img, label = tup
 
         # img, label = self.data[idx]
