@@ -3,3 +3,7 @@ oads_access.egg-info/PKG-INFO
 oads_access.egg-info/SOURCES.txt
 oads_access.egg-info/dependency_links.txt
 oads_access.egg-info/top_level.txt
+test/__init__.py
+test/model.py
+test/test.py
+test/train_dnn.py

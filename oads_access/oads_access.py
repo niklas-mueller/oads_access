@@ -584,6 +584,8 @@ def plot_crops_from_data_tuple(data_tuple, min_size=(0, 0), figsize=(18, 30), ma
         axis.set_title(obj['classTitle'])
         axis.axis('off')
 
+    fig.tight_layout()
+
     return fig
 
 
@@ -711,7 +713,7 @@ def plot_image_in_color_spaces(image: np.ndarray, figsize=(10, 5), cmap_rgb: str
 class OADSImageDataset(Dataset):
     def __init__(self, oads_access:OADS_Access, use_crops:bool, item_ids:list,
                 class_index_mapping:dict=None, transform=None, target_transform=None, 
-                device='cuda:0') -> None:
+                device='cuda:0', target:str='label') -> None:
         super().__init__()
 
         self.oads_access = oads_access
@@ -729,6 +731,8 @@ class OADSImageDataset(Dataset):
         self.class_index_mapping = class_index_mapping
         self.device = device
 
+        self.target = target
+
     def __len__(self):
         return len(self.item_ids)
 
@@ -743,17 +747,19 @@ class OADSImageDataset(Dataset):
         img, label = tup
 
         # img, label = self.data[idx]
-        img = np.transpose(np.array(img), (0, 1, 2))
-        # print(label)
-        label = label['classId']
-        if self.class_index_mapping is not None:
-            label = self.class_index_mapping[label]
+        # img = np.transpose(np.array(img), (0, 1, 2))
+        
+        if self.target == 'label':
+            label = label['classId']
+            if self.class_index_mapping is not None:
+                label = self.class_index_mapping[label]
 
         if self.transform:
             img = self.transform(img)
         if self.target_transform:
             label = self.target_transform(label)
 
-            # images.append((img, label))
+        if self.target == 'image':
+            label = img
 
         return (img, label)
