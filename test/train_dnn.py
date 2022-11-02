@@ -8,6 +8,7 @@ from result_manager.result_manager import ResultManager
 from oads_access.oads_access import OADS_Access, OADSImageDataset, plot_image_in_color_spaces
 from retina_model import RetinaCortexModel
 import torchvision.transforms as transforms
+from torchvision.models import resnet18, resnet50, alexnet
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -23,7 +24,10 @@ if __name__ == '__main__':
     parser.add_argument('--output_dir', help='Path to output directory.')
     parser.add_argument('--model_name', help='Model name to save the model under', default=f'model_{datetime.now().strftime("%d-%m-%y-%H:%M:%S")}')
     parser.add_argument('--n_epochs', help='Number of epochs for training.')
+    parser.add_argument('--force_recrop', help='Whether to recompute the crops from the images.', default=False)
+    parser.add_argument('--get_visuals', help='Whether to run some visual instead of training.', default=False)
     parser.add_argument('--optimizer', help='Optimizer to use for training', default='sgd')
+    parser.add_argument('--model_path', help='Path to model to continue training on.', default=None)
     parser.add_argument('--model_type', help='Model to use for training. Can be "test" or "retina_cortex"', default='retina_cortex')
 
     args = parser.parse_args()
@@ -46,57 +50,53 @@ if __name__ == '__main__':
     home = args.input_dir
     size = (200, 200)
     oads = OADS_Access(home, min_size_crops=size, max_size_crops=size)
-    oads.prepare_crops()
+
+    # Compute crops if necessary
+    if args.force_recrop:
+        oads.prepare_crops()
+
 
     result_manager = ResultManager(root=args.output_dir)
 
-    # fig = oads.plot_image_size_distribution(use_crops=True, figsize=(30, 30))
-    # result_manager.save_pdf(figs=[fig], filename='image_size_distribution.pdf')
-    # exit(1)
+    if args.get_visuals:
+        fig = oads.plot_image_size_distribution(use_crops=True, figsize=(30, 30))
+        result_manager.save_pdf(figs=[fig], filename='image_size_distribution.pdf')
 
     # get train, val, test split, using crops if specific size
-    # train_data, val_data, test_data = oads.get_train_val_test_split(use_crops=True, min_size=size, max_size=size)
     train_ids, val_ids, test_ids = oads.get_train_val_test_split_indices(use_crops=True)
-    print(f"Loaded data with train_data.shape: {len(train_ids)}")
+    print(f"Loaded data with train_ids.shape: {len(train_ids)}")
+    print(f"Loaded data with val_ids.shape: {len(val_ids)}")
+    print(f"Loaded data with test_ids.shape: {len(test_ids)}")
 
     
-    # figs = []
-    # for img in train_data:
-    #     fig = plot_image_in_color_spaces(np.array(img[0]), cmap_opponent='gray')
-    #     figs.append(fig)
-    # result_manager.save_pdf(figs=figs, filename=f'image_in_color_spaces_{size[0]}x{size[1]}.pdf')
-    # exit(1)
+    if args.get_visuals:
+        figs = []
+        results = oads.apply_per_crop(lambda x: plot_image_in_color_spaces(np.array(x[0]), cmap_opponent='gray'), max_number_crops=50)
+        for _, images in results.items():
+            for _, fig in images.items():
+                figs.append(fig)
+
+        # for img in train_data:
+        #     fig = plot_image_in_color_spaces(np.array(img[0]), cmap_opponent='gray')
+        #     figs.append(fig)
+        result_manager.save_pdf(figs=figs, filename=f'image_in_color_spaces_{size[0]}x{size[1]}.pdf')
 
     input_channels = size[0] #np.array(train_data[0][0]).shape[-1]
 
     output_channels = len(oads.get_class_mapping())
     class_index_mapping = {key: index for index, key in enumerate(list(oads.get_class_mapping().keys()))}
 
-    # Initialize model
-    if args.model_type == 'test':
-        model = TestModel(input_channels=input_channels, output_channels=output_channels, input_shape=size)
-        model = torch.nn.DataParallel(model)
-        model = model.to(device)
-    elif args.model_type == 'retina_cortex':
-        model = RetinaCortexModel(n_retina_layers=2, n_retina_in_channels=input_channels, n_retina_out_channels=2, retina_width=32,
-                                input_shape=size, kernel_size=(9,9), n_vvs_layers=2, out_features=output_channels, vvs_width=32)
-
-
     batch_size = 32
 
-    # means, stds = oads.get_dataset_stats(train_data)
-    # if not means.shape == (3,):
-    #     print(means.shape, stds.shape)
+    means, stds = oads.get_dataset_stats()
+    if not means.shape == (3,):
+        print(means.shape, stds.shape)
 
     # Get the custom dataset and dataloader
     transform = transforms.Compose([
         transforms.ToTensor(),
-        # transforms.Normalize(means.mean(axis=0), stds.mean(axis=0))
+        transforms.Normalize(means.mean(axis=0), stds.mean(axis=0))
     ])
-
-    # traindataset = OADSImageDataset(data=train_data, class_index_mapping=class_index_mapping, transform=transform, device=device)
-    # valdataset = OADSImageDataset(data=val_data, class_index_mapping=class_index_mapping, transform=transform, device=device)
-    # testdataset = OADSImageDataset(data=test_data, class_index_mapping=class_index_mapping, transform=transform, device=device)
 
     traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, class_index_mapping=class_index_mapping, transform=transform, device=device)
     valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True, class_index_mapping=class_index_mapping, transform=transform, device=device)
@@ -106,6 +106,32 @@ if __name__ == '__main__':
     trainloader = DataLoader(traindataset, batch_size=batch_size, shuffle=True, num_workers=1)
     valloader = DataLoader(valdataset, batch_size=batch_size, shuffle=True, num_workers=1)
     testloader = DataLoader(testdataset, batch_size=batch_size, shuffle=True, num_workers=1)
+
+
+    # Initialize model
+    if args.model_type == 'test':
+        model = TestModel(input_channels=input_channels, output_channels=output_channels, input_shape=size)
+        model = torch.nn.DataParallel(model)
+    elif args.model_type == 'resnet18':
+        model = resnet18()
+        model.fc = torch.nn.Linear(in_features=512, out_features=output_channels, bias=True)
+    elif args.model_type == 'resnet50':
+        model = resnet50()
+        model.fc = torch.nn.Linear(in_features=2048, out_features=output_channels, bias=True)
+    elif args.model_type == 'alexnet':
+        model = alexnet()
+        model.classifier[6] = torch.nn.Linear(4096, output_channels)
+
+
+    elif args.model_type == 'retina_cortex':
+        model = RetinaCortexModel(n_retina_layers=2, n_retina_in_channels=input_channels, n_retina_out_channels=2, retina_width=32,
+                                input_shape=size, kernel_size=(9,9), n_vvs_layers=2, out_features=output_channels, vvs_width=32)
+
+    if args.model_path is not None:
+        model.load_state_dict(torch.load(args.model_path))
+
+    model = model.to(device)
+
 
 
     criterion = nn.CrossEntropyLoss()
