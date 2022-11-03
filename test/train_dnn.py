@@ -3,7 +3,7 @@ from datetime import datetime
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib import pyplot as plt
 import numpy as np
-from model import visTensor, TestModel, evaluate
+# from model import visTensor, TestModel, evaluate
 from result_manager.result_manager import ResultManager
 from oads_access.oads_access import OADS_Access, OADSImageDataset, plot_image_in_color_spaces
 from retina_model import RetinaCortexModel
@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
-from pytorch_utils.pytorch_utils import *
+from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers
 
 if __name__ == '__main__':
     # Instantiate the parser
@@ -54,6 +54,7 @@ if __name__ == '__main__':
 
     # Compute crops if necessary
     if args.force_recrop:
+        print(f"Recomputing crops.")
         oads.prepare_crops()
 
 
@@ -74,6 +75,7 @@ if __name__ == '__main__':
     # exit(1)
     
     if args.get_visuals:
+        print(f"Getting visuals: plot_image_in_color_spaces")
         figs = []
         results = oads.apply_per_crop(lambda x: plot_image_in_color_spaces(np.array(x[0]), cmap_opponent='gray'), max_number_crops=50)
         for _, images in results.items():
@@ -85,18 +87,20 @@ if __name__ == '__main__':
         #     figs.append(fig)
         result_manager.save_pdf(figs=figs, filename=f'image_in_color_spaces_{size[0]}x{size[1]}.pdf')
 
-    input_channels = size[0] #np.array(train_data[0][0]).shape[-1]
 
+    input_channels = size[0] #np.array(train_data[0][0]).shape[-1]
     output_channels = len(oads.get_class_mapping())
     class_index_mapping = {key: index for index, key in enumerate(list(oads.get_class_mapping().keys()))}
 
     batch_size = 32
 
+    print(f"Getting dataset stats")
     means, stds = oads.get_dataset_stats()
     if not means.shape == (3,):
         print(means.shape, stds.shape)
 
     # Get the custom dataset and dataloader
+    print(f"Getting data loaders")
     transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(means.mean(axis=0), stds.mean(axis=0))
@@ -111,12 +115,10 @@ if __name__ == '__main__':
     valloader = DataLoader(valdataset, batch_size=batch_size, shuffle=True, num_workers=16)
     testloader = DataLoader(testdataset, batch_size=batch_size, shuffle=True, num_workers=16)
 
+    print(f"Loaded data loaders")
 
     # Initialize model
-    if args.model_type == 'test':
-        model = TestModel(input_channels=input_channels, output_channels=output_channels, input_shape=size)
-        model = torch.nn.DataParallel(model)
-    elif args.model_type == 'resnet18':
+    if args.model_type == 'resnet18':
         model = resnet18()
         model.fc = torch.nn.Linear(in_features=512, out_features=output_channels, bias=True)
     elif args.model_type == 'resnet50':
@@ -125,15 +127,17 @@ if __name__ == '__main__':
     elif args.model_type == 'alexnet':
         model = alexnet()
         model.classifier[6] = torch.nn.Linear(4096, output_channels)
-
-
     elif args.model_type == 'retina_cortex':
         model = RetinaCortexModel(n_retina_layers=2, n_retina_in_channels=input_channels, n_retina_out_channels=2, retina_width=32,
                                 input_shape=size, kernel_size=(9,9), n_vvs_layers=2, out_features=output_channels, vvs_width=32)
 
+    print(f"Create model {args.model_type}")
+
     if args.model_path is not None:
+        print(f"Loading model state {args.model_path}")
         model.load_state_dict(torch.load(args.model_path))
 
+    model = torch.nn.DataParallel(model)
     model = model.to(device)
 
 
