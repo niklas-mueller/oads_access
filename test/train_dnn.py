@@ -29,7 +29,6 @@ if __name__ == '__main__':
     parser.add_argument('--optimizer', help='Optimizer to use for training', default='sgd')
     parser.add_argument('--model_path', help='Path to model to continue training on.', default=None)
     parser.add_argument('--model_type', help='Model to use for training. Can be "test" or "retina_cortex"', default='retina_cortex')
-    parser.add_argument('--continue_model_path', help='Path to load model from to continue training.', default=None)
 
     args = parser.parse_args()
 
@@ -146,6 +145,8 @@ if __name__ == '__main__':
 
     if args.optimizer == 'sgd':
         optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    elif args.optimizer == 'adam':
+        optimizer = optim.Adam(model.parameters(), lr=0.001)
     elif args.optimizer == 'rmsprop':
         optimizer = optim.RMSprop(model.parameters(), lr=0.001, momentum=0.9)
 
