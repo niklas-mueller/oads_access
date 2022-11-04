@@ -44,6 +44,16 @@ class OADS_Access():
         else:
             self.has_raw_images = False
 
+        self.check_has_crop_files()
+
+        self.datasets = [x for x in os.listdir(
+            self.basedir) if os.path.isdir(os.path.join(self.basedir, x)) and x != 'crops'] 
+
+        self.image_names = {
+            name: [x for x in os.listdir(os.path.join(self.basedir, name, 'img'))] for name in self.datasets
+        }
+
+    def check_has_crop_files(self):
         if os.path.exists(os.path.join(self.basedir, 'crops')):
             self.has_crops_files = True
             self.crop_files_names = {
@@ -53,13 +63,6 @@ class OADS_Access():
             } 
         else:
             self.has_crops_files = False
-
-        self.datasets = [x for x in os.listdir(
-            self.basedir) if os.path.isdir(os.path.join(self.basedir, x)) and x != 'crops'] 
-
-        self.image_names = {
-            name: [x for x in os.listdir(os.path.join(self.basedir, name, 'img'))] for name in self.datasets
-        }
 
     def get_meta_info(self):
         """get_meta_info
@@ -190,14 +193,22 @@ class OADS_Access():
         return tup
 
     def load_crop(self, class_name:str, image_name:str):
-        crop = Image.open(os.path.join(self.basedir, 'crops', class_name, image_name))
+        fileformat = os.path.splitext(image_name)[-1]
+        if self.file_formats is not None and fileformat not in self.file_formats:
+            return None
+
+        path = os.path.join(self.basedir, 'crops', class_name, image_name)
+        if image_name.endswith('.npy'):
+            crop = np.load(path)
+        else:
+            crop = Image.open(path)
 
         with open(os.path.join(self.basedir, 'crops', class_name, f"{image_name}.json"), 'r') as f:
             label = json.load(f)
 
         return (crop, label)
 
-    def get_data_iterator(self, dataset_names=None, use_crops:bool=False, file_formats: list = None, max_number_images: int = None):
+    def get_data_iterator(self, dataset_names=None, use_crops:bool=False, max_number_images: int = None):
         """get_data_iterator
 
         Get a list of pairs of images and labels. 
@@ -335,29 +346,36 @@ class OADS_Access():
         class_name, file_names = args
         crops = []
         for file_name in file_names:
-            (crop, label) = self.load_crop(class_name=class_name, image_name=file_name)
-            crops.append((crop, label))
+            tup = self.load_crop(class_name=class_name, image_name=file_name)
+            if tup is not None:
+                crops.append(tup)
 
         return crops
 
-    def _prepare_crops_dataset(self, dataset_name):
+    def _prepare_crops_dataset(self, args):
+        dataset_name, convert_to_opponent_space = args
         for image_name in self.image_names[dataset_name]:
             tup = self.load_image(dataset_name=dataset_name, image_name=image_name)
             if tup is not None:
                 (img, label) = tup
-                _ = self.make_and_save_crops_from_image(img=img, label=label, save_files=True)
+                if convert_to_opponent_space:
+                    img = rgb_to_opponent_space(np.array(img))
+                _ = self.make_and_save_crops_from_image(img=img, label=label, is_opponent_space=convert_to_opponent_space, save_files=True)
 
-    def prepare_crops(self, dataset_names:list=None):
+    def prepare_crops(self, dataset_names:list=None, convert_to_opponent_space:bool=False):
         if dataset_names is None:
             dataset_names = self.datasets
 
+        args = zip(dataset_names, [convert_to_opponent_space for _ in range(len(dataset_names))])
+
         with multiprocessing.Pool() as pool:
             print(f"Number of processes: {pool._processes}")
-            _ = list(tqdm.tqdm(pool.imap(self._prepare_crops_dataset, dataset_names), total=len(dataset_names)))
+            _ = list(tqdm.tqdm(pool.imap(self._prepare_crops_dataset, args), total=len(dataset_names)))
+
+        self.check_has_crop_files()
         
 
-    def get_crop_iterator(self, data_iterator: "list|np.ndarray" = None,
-                          file_formats: list = None,
+    def get_crop_iterator(self, data_iterator: "list|np.ndarray" = None, convert_to_opponent_space:bool=False,
                           max_number_images: int = None, save_files:bool=False, recompute_crops:bool=False):
 
         crop_iterator = []
@@ -370,16 +388,17 @@ class OADS_Access():
         else:
         
             if data_iterator is None:
-                crop_iterator = self.get_data_iterator(
-                    file_formats=file_formats, max_number_images=max_number_images, use_crops=True)
+                crop_iterator = self.get_data_iterator( max_number_images=max_number_images, use_crops=True)
             else:
                 for (img, label) in data_iterator:
-                    crops = self.make_and_save_crops_from_image(img=img, label=label, save_files=save_files)
+                    if convert_to_opponent_space:
+                        img = rgb_to_opponent_space(np.array(img))
+                    crops = self.make_and_save_crops_from_image(img=img, label=label, is_opponent_space=convert_to_opponent_space, save_files=save_files)
                     crop_iterator.extend(crops)
 
         return crop_iterator
 
-    def make_and_save_crops_from_image(self, img, label, save_files:bool=False):
+    def make_and_save_crops_from_image(self, img, label, is_opponent_space:bool=False, save_files:bool=False):
         crops = []
         for obj in label['objects']:
             if self.exclude_oversized_crops:
@@ -388,15 +407,21 @@ class OADS_Access():
                 if height > self.max_size_crops[0] or width > self.max_size_crops[1]:
                     continue
             crop = get_image_crop(
-                        img=img, object=obj, min_size=self.min_size_crops, max_size=self.max_size_crops, is_raw=label['is_raw'])
+                        img=img, object=obj, min_size=self.min_size_crops, max_size=self.max_size_crops, is_raw=label['is_raw'], is_opponent_space=is_opponent_space)
             crops.append((crop, obj))
 
             if save_files:
-                fileending = '.jpg'
+                if is_opponent_space:
+                    fileending = '.npy'
+                else:
+                    fileending = '.jpg'
                 filedir = os.path.join(self.basedir, 'crops', str(obj['classId']))
                 filename = os.path.join(filedir, f"{str(obj['id'])}{fileending}")
                 os.makedirs(filedir, exist_ok=True)
-                crop.save(fp=filename)
+                if is_opponent_space:
+                    np.save(arr=crop, file=filename, allow_pickle=False)
+                else:
+                    crop.save(fp=filename)
                 with open(f"{filename}.json", 'w') as f:
                     json.dump(obj, fp=f)
 
@@ -539,7 +564,7 @@ def get_annotation_dimensions(obj: dict, is_raw, min_size: tuple = None, max_siz
 # create crops from image
 
 
-def get_image_crop(img: "np.ndarray|list|Image.Image", object: dict, min_size: tuple, max_size: tuple = None, is_raw: bool = False):
+def get_image_crop(img: "np.ndarray|list|Image.Image", object: dict, min_size: tuple, max_size: tuple = None, is_raw: bool = False, is_opponent_space:bool=False):
     """get_image_crop
 
     Using the annotation box object, crop the original image to the given size.
@@ -588,9 +613,16 @@ def get_image_crop(img: "np.ndarray|list|Image.Image", object: dict, min_size: t
             top = mid_point - max_size[1] / 2
             bottom = mid_point + max_size[1] / 2
 
-    if type(img) == np.ndarray:
-        img = Image.fromarray(img)
-    crop = img.crop((left, top, right, bottom))
+    if is_opponent_space:
+        crop = []
+        for _x in img:
+            crop.append(np.array(Image.fromarray(_x).crop((left, top, right, bottom)), dtype=np.float64))
+
+        crop = np.array(crop, dtype=np.float64).transpose((1,2,0)) # Make sure channels are last
+    else:
+        if type(img) == np.ndarray:
+            img = Image.fromarray(img)
+        crop = img.crop((left, top, right, bottom))
     return crop
 
 
