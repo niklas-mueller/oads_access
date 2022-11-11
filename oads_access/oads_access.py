@@ -204,6 +204,7 @@ class OADS_Access():
 
         fileformat = os.path.splitext(filename)[-1]
         if self.file_formats is not None and fileformat not in self.file_formats:
+            print(f"File {fileformat} not in file formats {self.file_formats}. Skipping")
             # continue
             return None
 
@@ -337,7 +338,7 @@ class OADS_Access():
         return _max_width, _max_height
 
     def get_train_val_test_split(self, data_iterator: "list|np.ndarray" = None, val_size: float = 0.1, test_size: float = 0.1,
-                                 use_crops: bool = False, file_formats: list = None, max_number_images: int = None):
+                                 use_crops: bool = False, max_number_images: int = None):
         """get_train_val_test_split
 
         Split the data_iterator into train, validation and test sets.
@@ -366,10 +367,10 @@ class OADS_Access():
         """
         if data_iterator is None:
             if use_crops:
-                data_iterator = self.get_crop_iterator(file_formats=file_formats, max_number_images=max_number_images)
+                data_iterator = self.get_crop_iterator(max_number_images=max_number_images)
             else:
                 data_iterator = self.get_data_iterator(
-                    file_formats=file_formats, max_number_images=max_number_images)
+                    max_number_images=max_number_images)
 
         train_data, test_data = train_test_split(
             data_iterator, test_size=val_size+test_size)
