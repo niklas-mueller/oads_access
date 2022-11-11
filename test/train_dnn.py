@@ -15,6 +15,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
 from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers
+import multiprocessing
 
 if __name__ == '__main__':
     # Instantiate the parser
@@ -29,6 +30,7 @@ if __name__ == '__main__':
     parser.add_argument('--optimizer', help='Optimizer to use for training', default='sgd')
     parser.add_argument('--model_path', help='Path to model to continue training on.', default=None)
     parser.add_argument('--model_type', help='Model to use for training. Can be "test" or "retina_cortex"', default='retina_cortex')
+    parser.add_argument('--image_representation', help='Way images are represented. Can be `RGB`, `COC` (color opponent channels)', default='RGB')
 
     args = parser.parse_args()
 
@@ -47,14 +49,29 @@ if __name__ == '__main__':
 
     # initialize data access
     # home = '../../data/oads/mini_oads/'
-    home = args.input_dir
     size = (200, 200)
-    oads = OADS_Access(home, min_size_crops=size, max_size_crops=size)
+
+    if args.image_representation == 'RGB':
+        print(f"Image representation: RGB. File format: .jpg")
+        file_formats = ['.jpg']
+        convert_to_opponent_space = False
+    elif args.image_representation == 'COC':
+        print(f"Image representation: color opponent space. File format: .npy")
+        file_formats = ['.npy']
+        convert_to_opponent_space = True
+    else:
+        print(f"Image representation is not know. Exiting.")
+        exit(1)
+
+    home = args.input_dir
+    oads = OADS_Access(home, file_formats=file_formats, min_size_crops=size, max_size_crops=size)
 
     # Compute crops if necessary
     if args.force_recrop:
         print(f"Recomputing crops.")
-        oads.prepare_crops()
+        oads.file_formats = ['.ARW']
+        oads.prepare_crops(convert_to_opponent_space=convert_to_opponent_space)
+        oads.file_formats = file_formats
 
 
     result_manager = ResultManager(root=args.output_dir)
@@ -102,7 +119,7 @@ if __name__ == '__main__':
     print(f"Getting data loaders")
     transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize(means.mean(axis=0), stds.mean(axis=0))
+        # transforms.Normalize(means.mean(axis=0), stds.mean(axis=0))   # TODO fix this
     ])
 
     traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, class_index_mapping=class_index_mapping, transform=transform, device=device)
@@ -110,9 +127,9 @@ if __name__ == '__main__':
     testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True, class_index_mapping=class_index_mapping, transform=transform, device=device)
 
 
-    trainloader = DataLoader(traindataset, batch_size=batch_size, shuffle=True, num_workers=16)
-    valloader = DataLoader(valdataset, batch_size=batch_size, shuffle=True, num_workers=16)
-    testloader = DataLoader(testdataset, batch_size=batch_size, shuffle=True, num_workers=16)
+    trainloader = DataLoader(traindataset, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
+    valloader = DataLoader(valdataset, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
+    testloader = DataLoader(testdataset, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
 
     print(f"Loaded data loaders")
 
@@ -150,8 +167,8 @@ if __name__ == '__main__':
     elif args.optimizer == 'rmsprop':
         optimizer = optim.RMSprop(model.parameters(), lr=0.001, momentum=0.9)
 
-    eval_valid_every = (len(trainloader) / int(batch_size)) / 5
+    plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=5)
 
     train(model=model, trainloader=trainloader, valloader=valloader, device=device,
             loss_fn=criterion, optimizer=optimizer, n_epochs=int(args.n_epochs), result_manager=result_manager,
-            testloader=testloader, eval_valid_every=eval_valid_every)
+            testloader=testloader, plateau_lr_scheduler=plateau_scheduler)
