@@ -11,6 +11,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 from torch import nn as nn
+import torch
 import tqdm
 
 
@@ -30,7 +31,7 @@ class OADS_Access():
     >>> oads = OADS_Access(basedir='../data/oads')
     """
 
-    def __init__(self, basedir: str, file_formats:list=None, min_size_crops:tuple=(0,0), max_size_crops:tuple=None, exclude_oversized_crops:bool=False):
+    def __init__(self, basedir: str, file_formats:list=None, use_avg_crop_size:bool=True, min_size_crops:tuple=(0,0), max_size_crops:tuple=None, exclude_oversized_crops:bool=False):
         self.basedir = basedir
         self.file_formats = file_formats
         self.min_size_crops = min_size_crops        
@@ -52,6 +53,35 @@ class OADS_Access():
         self.image_names = {
             name: [x for x in os.listdir(os.path.join(self.basedir, name, 'img'))] for name in self.datasets
         }
+
+        self.avg_crop_size = []
+
+        self.crops_per_image = {}
+        for dataset_name, x in self.image_names.items():
+            for img in x:
+                fileformat = os.path.splitext(img)[-1]
+                if self.file_formats is not None and fileformat not in self.file_formats:
+                    continue
+                is_raw = True if fileformat == '.ARW' else False
+
+                objs = self.get_annotation(dataset_name=dataset_name, image_name=img, is_raw=is_raw)
+                if objs is not None:
+                    self.crops_per_image[(dataset_name, img)] = len(objs['objects'])
+                    for obj in objs['objects']:
+                        self.avg_crop_size.append(self.get_annotation_size(obj, is_raw=is_raw))
+                else:
+                    self.crops_per_image[(dataset_name, img)] = 0
+
+        self.avg_crop_size = np.rint(np.mean(self.avg_crop_size, axis=0) + 0.6 * np.std(self.avg_crop_size, axis=0))
+        if use_avg_crop_size:
+            self.min_size_crops = self.avg_crop_size
+            self.max_size_crops = self.avg_crop_size
+
+        self.item_to_image = []
+        for (dataset_name, image_name), length in self.crops_per_image.items():
+            for x in range(length):
+                self.item_to_image.append((dataset_name, image_name, x))
+
 
     def check_has_crop_files(self):
         if os.path.exists(os.path.join(self.basedir, 'crops')):
@@ -101,7 +131,7 @@ class OADS_Access():
         """
         return {x['id']: x['title'] for x in self.get_meta_info()['classes']}
 
-    def get_annotation(self, dataset_name, image_name, is_raw=False):
+    def get_annotation(self, dataset_name:str, image_name:str, is_raw=False):
         """get_annotation
 
         Get the annotations for a specific dataset+image pair.
@@ -122,9 +152,10 @@ class OADS_Access():
         ----------
         >>> 
         """
+        if is_raw:
+            image_name = image_name.replace('ARW', 'jpg')
         path = os.path.join(self.basedir, dataset_name,
                             'ann', f"{image_name}.json")
-
         if os.path.exists(path):
             with open(path, 'r') as f:
                 content = json.load(f)
@@ -208,6 +239,25 @@ class OADS_Access():
 
         return (crop, label)
 
+    def load_crop_from_image(self, dataset_name:str, image_name:str, index:int, is_opponent_space:bool=False):
+        tup = self.load_image(dataset_name=dataset_name, image_name=image_name)
+
+        if tup is None:
+            return None
+        
+        img, label = tup
+
+        obj = label['objects'][index] # This index needs to be normalized/adjust somehow
+        if self.exclude_oversized_crops:
+            width, height = self.get_annotation_size(
+                        obj, is_raw=label['is_raw'])
+            if height > self.max_size_crops[0] or width > self.max_size_crops[1]:
+                return None
+        crop = self.get_image_crop(
+                    img=img, object=obj, is_raw=label['is_raw'], is_opponent_space=is_opponent_space)
+
+        return crop, obj
+
     def get_data_iterator(self, dataset_names=None, use_crops:bool=False, max_number_images: int = None):
         """get_data_iterator
 
@@ -255,7 +305,7 @@ class OADS_Access():
         height = bottom - top
         width = right - left
 
-        return height, width
+        return width, height
 
     def get_maximum_annotation_size(self, data_iterator: list = None):
         """get_maximum_annotation_size
@@ -279,12 +329,12 @@ class OADS_Access():
 
         for (_, label) in data_iterator:
             for obj in label['objects']:
-                height, width = self.get_annotation_size(
+                width, height = self.get_annotation_size(
                     obj, is_raw=label['is_raw'])
                 _max_height = max(_max_height, height)
                 _max_width = max(_max_width, width)
 
-        return _max_height, _max_width
+        return _max_width, _max_height
 
     def get_train_val_test_split(self, data_iterator: "list|np.ndarray" = None, val_size: float = 0.1, test_size: float = 0.1,
                                  use_crops: bool = False, file_formats: list = None, max_number_images: int = None):
@@ -329,10 +379,25 @@ class OADS_Access():
         return train_data, val_data, test_data
 
     def get_train_val_test_split_indices(self, use_crops:bool, val_size:float=0.1, test_size:float=0.1, remove_duplicates:bool=True):
+
+        def get_list(items):
+            _images = []
+            for class_name, image_names in items:
+                for image_name in image_names:
+                    fileformat = os.path.splitext(image_name)[-1]
+                    if self.file_formats is not None and fileformat not in self.file_formats:
+                        continue
+                    _images.append((class_name, image_name))
+
+            return _images
+            # [(class_name, image_name) for class_name, image_names in items for image_name in image_names]
         if use_crops:
-            image_ids = [(class_name, image_name) for class_name, image_names in self.crop_files_names.items() for image_name in image_names]
+            # image_ids = [(class_name, image_name) for class_name, image_names in self.crop_files_names.items() for image_name in image_names]
+            # image_ids = get_list(self.crop_files_names.items())
+            image_ids = self.item_to_image
         else:
-            image_ids = [(dataset_name, image_name) for dataset_name, image_names in self.image_names.items() for image_name in image_names]
+            image_ids = get_list(self.image_names.items())
+            # image_ids = [(dataset_name, image_name) for dataset_name, image_names in self.image_names.items() for image_name in image_names]
 
         if remove_duplicates:
             image_ids = list(set(image_ids))
@@ -402,11 +467,11 @@ class OADS_Access():
         crops = []
         for obj in label['objects']:
             if self.exclude_oversized_crops:
-                height, width = self.get_annotation_size(
+                width, height = self.get_annotation_size(
                             obj, is_raw=label['is_raw'])
                 if height > self.max_size_crops[0] or width > self.max_size_crops[1]:
                     continue
-            crop = get_image_crop(
+            crop = self.get_image_crop(
                         img=img, object=obj, min_size=self.min_size_crops, max_size=self.max_size_crops, is_raw=label['is_raw'], is_opponent_space=is_opponent_space)
             crops.append((crop, obj))
 
@@ -476,15 +541,18 @@ class OADS_Access():
         results = {}
 
         crop_counter = 0
-        for dataset_name in self.crop_files_names.keys():
-            results[dataset_name] = {}
-            for crop_name in self.crop_files_names[dataset_name]:
-                tup = self.load_crop(class_name=dataset_name, image_name=crop_name)
-                if tup is not None:
-                    if max_number_crops is not None and crop_counter >= max_number_crops:
-                        return results
-                    results[dataset_name][crop_name] = custom_function(tup)
-                    crop_counter += 1
+        for dataset_name, image_name, index in self.item_to_image:
+        # for dataset_name in self.crop_files_names.keys():
+            if dataset_name not in results.keys():
+                results[dataset_name] = {}
+            # for crop_name in self.crop_files_names[dataset_name]:
+                # tup = self.load_crop(class_name=dataset_name, image_name=crop_name)
+            tup = self.load_crop_from_image(dataset_name=dataset_name, image_name=image_name, index=index)
+            if tup is not None:
+                if max_number_crops is not None and crop_counter >= max_number_crops:
+                    return results
+                results[dataset_name][f"{image_name}_{index}"] = custom_function(tup)
+                crop_counter += 1
 
         return results
 
@@ -541,6 +609,142 @@ class OADS_Access():
             np.array(data_tuple[1]['points']['exterior'])[::, ::-1, :])
         return (img, label)
 
+    def get_image_crop(self, img: "np.ndarray|list|Image.Image", object: dict, is_raw: bool = False, is_opponent_space:bool=False):
+        """get_image_crop
+
+        Using the annotation box object, crop the original image to the given size.
+
+        Parameters
+        ----------
+        img: ndarray, list, PIL Image
+            Image to be cropped
+        object: dict
+            Annotation Box object containing labelling information.
+        min_size: Tuple(int, int)
+            Minimum size (width, height) to crop the image to.
+        max_size: tuple(int,int), optional
+            Maximum size (width, height) to crop the image to, by default None
+
+        Returns
+        ----------
+        ndarray, list, PIL Image
+            Cropped image
+
+        Example
+        ----------
+        >>> crop = get_image_crop(img=image, object=obj, min_size=(50, 50)) 
+        """
+        ((left, top), (right, bottom)), min_size, max_size = get_annotation_dimensions(
+            object, is_raw=is_raw, min_size=self.min_size_crops, max_size=self.max_size_crops)
+
+        height, width = img.shape[:2]
+
+        # Check if crop would be too small
+        if right-left < min_size[0]:
+            mid_point = left + (right - left) / 2
+            left = mid_point - min_size[0] / 2
+            right = mid_point + min_size[0] / 2
+        if bottom-top < min_size[1]:
+            mid_point = top + (bottom - top) / 2
+            top = mid_point - min_size[1] / 2
+            bottom = mid_point + min_size[1] / 2
+
+        # Check if crop would be too big
+        if not max_size is None:
+            if right - left > max_size[0]:
+                mid_point = left + (right - left) / 2
+                left = mid_point - max_size[0] / 2
+                right = mid_point + max_size[0] / 2
+            if bottom - top > max_size[1]:
+                mid_point = top + (bottom - top) / 2
+                top = mid_point - max_size[1] / 2
+                bottom = mid_point + max_size[1] / 2
+
+
+        # make sure nothing is cropped outside the actual image
+        redo = True
+        while redo:
+            if left < 0:
+                redo = True
+                right -= left
+                left = 0
+            elif right > width:
+                redo = True
+                left -= (right - width)
+                right = width
+            elif top < 0:
+                redo = True
+                bottom -= top
+                top = 0
+            elif bottom > height:
+                redo = True
+                top -= (bottom - height)
+                bottom = height
+            else:
+                redo = False
+            
+        ########
+
+
+        if is_opponent_space:
+            crop = []
+            for _x in img:
+                crop.append(np.array(Image.fromarray(_x).crop((left, top, right, bottom)), dtype=np.float64))
+
+            crop = np.array(crop, dtype=np.float64).transpose((1,2,0)) # Make sure channels are last
+        else:
+            if type(img) == np.ndarray:
+                img = Image.fromarray(img)
+            crop = img.crop((left, top, right, bottom))
+        return crop
+
+    def plot_crops_from_data_tuple(self, data_tuple, min_size=(0, 0), figsize=(18, 30), max_size=None):
+        """plot_crops_from_data_tuple
+
+        For a given tuple of (image, label) (e.g., from get_data_iterator) plot all the crops corresponding to the annotated labels.
+
+        Parameters
+        ----------
+        data_tuple: Tuple(PIL Image, dict)
+            Data tuple with image and label information
+        min_size: tuple, optional
+            Minimum size to crop each annotation box to, by default (0, 0)
+        figsize: tuple, optional
+            Figsize for plt.subplots, by default (18,30)
+
+        Returns
+        ----------
+        plt.figure
+            Figure with all crops of the original image in subplots.
+
+        Example
+        ----------
+        >>> fig = plot_crops_from_data_tuple(data[0]) 
+        """
+        img = data_tuple[0]
+        label = data_tuple[1]
+
+        _n = len(label['objects'])
+        if _n == 0:
+            print("No labels present for image!")
+            return None
+        _n = int(np.ceil(np.sqrt(_n)))
+        fig, ax = plt.subplots(_n, _n, figsize=figsize)
+
+        for index, axis in enumerate(ax.flatten()):
+            if index >= len(label['objects']):
+                plt.delaxes(axis)
+            else:
+                obj = label['objects'][index]
+                crop = self.get_image_crop(img, obj, min_size=min_size,
+                                    max_size=max_size, is_raw=label['is_raw'])
+                axis.imshow(crop)
+                axis.set_title(obj['classTitle'])
+                axis.axis('off')
+
+        fig.tight_layout()
+
+        return fig
 
 def get_image_size(tup):
     img, _ = tup
@@ -562,113 +766,6 @@ def get_annotation_dimensions(obj: dict, is_raw, min_size: tuple = None, max_siz
     return ((left, top), (right, bottom)), min_size, max_size
 
 # create crops from image
-
-
-def get_image_crop(img: "np.ndarray|list|Image.Image", object: dict, min_size: tuple, max_size: tuple = None, is_raw: bool = False, is_opponent_space:bool=False):
-    """get_image_crop
-
-    Using the annotation box object, crop the original image to the given size.
-
-    Parameters
-    ----------
-    img: ndarray, list, PIL Image
-        Image to be cropped
-    object: dict
-        Annotation Box object containing labelling information.
-    min_size: Tuple(int, int)
-        Minimum size (width, height) to crop the image to.
-    max_size: tuple(int,int), optional
-        Maximum size (width, height) to crop the image to, by default None
-
-    Returns
-    ----------
-    ndarray, list, PIL Image
-        Cropped image
-
-    Example
-    ----------
-    >>> crop = get_image_crop(img=image, object=obj, min_size=(50, 50)) 
-    """
-    ((left, top), (right, bottom)), min_size, max_size = get_annotation_dimensions(
-        object, is_raw=is_raw, min_size=min_size, max_size=max_size)
-
-    # Check if crop would be too small
-    if right-left < min_size[0]:
-        mid_point = left + (right - left) / 2
-        left = mid_point - min_size[0] / 2
-        right = mid_point + min_size[0] / 2
-    if bottom-top < min_size[1]:
-        mid_point = top + (bottom - top) / 2
-        top = mid_point - min_size[1] / 2
-        bottom = mid_point + min_size[1] / 2
-
-    # Check if crop would be too big
-    if not max_size is None:
-        if right - left > max_size[0]:
-            mid_point = left + (right - left) / 2
-            left = mid_point - max_size[0] / 2
-            right = mid_point + max_size[0] / 2
-        if bottom - top > max_size[1]:
-            mid_point = top + (bottom - top) / 2
-            top = mid_point - max_size[1] / 2
-            bottom = mid_point + max_size[1] / 2
-
-    if is_opponent_space:
-        crop = []
-        for _x in img:
-            crop.append(np.array(Image.fromarray(_x).crop((left, top, right, bottom)), dtype=np.float64))
-
-        crop = np.array(crop, dtype=np.float64).transpose((1,2,0)) # Make sure channels are last
-    else:
-        if type(img) == np.ndarray:
-            img = Image.fromarray(img)
-        crop = img.crop((left, top, right, bottom))
-    return crop
-
-
-def plot_crops_from_data_tuple(data_tuple, min_size=(0, 0), figsize=(18, 30), max_size=None):
-    """plot_crops_from_data_tuple
-
-    For a given tuple of (image, label) (e.g., from get_data_iterator) plot all the crops corresponding to the annotated labels.
-
-    Parameters
-    ----------
-    data_tuple: Tuple(PIL Image, dict)
-        Data tuple with image and label information
-    min_size: tuple, optional
-        Minimum size to crop each annotation box to, by default (0, 0)
-    figsize: tuple, optional
-        Figsize for plt.subplots, by default (18,30)
-
-    Returns
-    ----------
-    plt.figure
-        Figure with all crops of the original image in subplots.
-
-    Example
-    ----------
-    >>> fig = plot_crops_from_data_tuple(data[0]) 
-    """
-    img = data_tuple[0]
-    label = data_tuple[1]
-
-    _n = len(label['objects'])
-    if _n == 0:
-        print("No labels present for image!")
-        return None
-    _n = int(np.ceil(np.sqrt(_n)))
-    fig, ax = plt.subplots(_n, _n, figsize=figsize)
-
-    for axis, obj in zip(ax.flatten(), label['objects']):
-        crop = get_image_crop(img, obj, min_size=min_size,
-                              max_size=max_size, is_raw=label['is_raw'])
-        axis.imshow(crop)
-        axis.set_title(obj['classTitle'])
-        axis.axis('off')
-
-    fig.tight_layout()
-
-    return fig
 
 
 def add_label_box_to_axis(label: dict, ax, color: str = 'r', add_title: bool = False):
@@ -801,7 +898,9 @@ class OADSImageDataset(Dataset):
         self.oads_access = oads_access
         self.use_crops = use_crops
         self.item_ids = item_ids
-        
+
+
+
         self.transform = transform
         self.target_transform = target_transform
         self.class_index_mapping = class_index_mapping
@@ -809,17 +908,25 @@ class OADSImageDataset(Dataset):
 
         self.target = target
 
+    def collate_fn(batch):
+        batch = list(filter(lambda x: x is not None, batch))
+        return torch.utils.dataloader.default_collate(batch)
+
     def __len__(self):
         return len(self.item_ids)
 
     def __getitem__(self, idx):
-        dataset_name, image_name = self.item_ids[idx]
-        tup = None
-        while tup is None:
-            if self.use_crops:
-                tup = self.oads_access.load_crop(class_name=dataset_name, image_name=image_name)
-            else:
-                tup = self.oads_access.load_image(dataset_name=dataset_name, image_name=image_name)
+        # dataset_name, image_name = self.item_ids[idx]
+        dataset_name, image_name, index = self.item_ids[idx]
+        if self.use_crops:
+            # tup = self.oads_access.load_crop(class_name=dataset_name, image_name=image_name)
+            tup = self.oads_access.load_crop_from_image(dataset_name=dataset_name, image_name=image_name, index=index)
+        else:
+            tup = self.oads_access.load_image(dataset_name=dataset_name, image_name=image_name)
+
+        if tup is None:
+            return None
+
         img, label = tup
 
         # img, label = self.data[idx]
