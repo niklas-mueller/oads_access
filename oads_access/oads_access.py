@@ -373,7 +373,7 @@ class OADS_Access():
         else:
             if data_iterator is None:
                 crop_iterator = self.get_data_iterator(
-                    file_formats=file_formats, max_number_images=max_number_images, use_crops=True)
+                    file_formats=file_formats, max_number_images=max_number_images, use_crops=True, save_crops=save_files)
             else:
                 for (img, label) in data_iterator:
                     crops = self.make_and_save_crops_from_image(img=img, label=label, save_files=save_files)
