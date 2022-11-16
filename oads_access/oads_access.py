@@ -2,7 +2,7 @@ from fileinput import filename
 import multiprocessing
 import os
 import json
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 from matplotlib import test
 import rawpy
 import matplotlib.pyplot as plt
@@ -338,8 +338,11 @@ class OADS_Access():
         class_name, file_names = args
         crops = []
         for file_name in file_names:
-            (crop, label) = self.load_crop(class_name=class_name, image_name=file_name)
-            crops.append((crop, label))
+            try:
+                (crop, label) = self.load_crop(class_name=class_name, image_name=file_name)
+                crops.append((crop, label))
+            except UnidentifiedImageError as e:
+                continue
 
         return crops
 
@@ -794,7 +797,10 @@ class OADSImageDataset(Dataset):
         tup = None
         while tup is None:
             if self.use_crops:
-                tup = self.oads_access.load_crop(class_name=dataset_name, image_name=image_name)
+                try:
+                    tup = self.oads_access.load_crop(class_name=dataset_name, image_name=image_name)
+                except UnidentifiedImageError:
+                    tup = None
             else:
                 tup = self.oads_access.load_image(dataset_name=dataset_name, image_name=image_name)
         img, label = tup
