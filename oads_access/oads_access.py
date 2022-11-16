@@ -44,6 +44,16 @@ class OADS_Access():
         else:
             self.has_raw_images = False
 
+        self.check_has_crops()
+
+        self.datasets = [x for x in os.listdir(
+            self.basedir) if os.path.isdir(os.path.join(self.basedir, x)) and x != 'crops'] 
+
+        self.image_names = {
+            name: [x for x in os.listdir(os.path.join(self.basedir, name, 'img'))] for name in self.datasets
+        }
+
+    def check_has_crops(self):
         if os.path.exists(os.path.join(self.basedir, 'crops')):
             self.has_crops_files = True
             self.crop_files_names = {
@@ -53,13 +63,6 @@ class OADS_Access():
             } 
         else:
             self.has_crops_files = False
-
-        self.datasets = [x for x in os.listdir(
-            self.basedir) if os.path.isdir(os.path.join(self.basedir, x)) and x != 'crops'] 
-
-        self.image_names = {
-            name: [x for x in os.listdir(os.path.join(self.basedir, name, 'img'))] for name in self.datasets
-        }
 
     def get_meta_info(self):
         """get_meta_info
@@ -133,7 +136,7 @@ class OADS_Access():
     def load_images_from_dataset(self, args: list):
         dataset_name = args[0]
         max_number_images = args[1]
-        use_crops = args[2]
+        use_crops, save_crops = args[2]
 
         if max_number_images is not None:
             mask = np.where(np.arange(len(self.image_names[dataset_name])) >= max_number_images, False, True)
@@ -149,7 +152,7 @@ class OADS_Access():
             tup = self.load_image(dataset_name=dataset_name, image_name=image_name)
             if tup is not None:
                 if use_crops:
-                    crops = self.make_and_save_crops_from_image(img=tup[0], label=tup[1])
+                    crops = self.make_and_save_crops_from_image(img=tup[0], label=tup[1], save_files=save_crops)
                     data.extend(crops)
                 else:
                     data.append(tup)
@@ -197,7 +200,7 @@ class OADS_Access():
 
         return (crop, label)
 
-    def get_data_iterator(self, dataset_names=None, use_crops:bool=False, file_formats: list = None, max_number_images: int = None):
+    def get_data_iterator(self, dataset_names=None, use_crops:bool=False, save_crops:bool=False, file_formats: list = None, max_number_images: int = None):
         """get_data_iterator
 
         Get a list of pairs of images and labels. 
@@ -226,7 +229,7 @@ class OADS_Access():
             n_per_dataset = None
 
         max_number_images = [n_per_dataset for _ in range(len(dataset_names))]
-        use_crops = [use_crops for _ in range(len(dataset_names))]
+        use_crops = [(use_crops, save_crops) for _ in range(len(dataset_names))]
 
         # self.file_formats = file_formats
 
@@ -368,7 +371,6 @@ class OADS_Access():
             crop_iterator = [x for dataset in results for x in dataset]
 
         else:
-        
             if data_iterator is None:
                 crop_iterator = self.get_data_iterator(
                     file_formats=file_formats, max_number_images=max_number_images, use_crops=True)
@@ -376,6 +378,8 @@ class OADS_Access():
                 for (img, label) in data_iterator:
                     crops = self.make_and_save_crops_from_image(img=img, label=label, save_files=save_files)
                     crop_iterator.extend(crops)
+
+            self.check_has_crops()
 
         return crop_iterator
 
@@ -670,8 +674,13 @@ def add_label_box_to_axis(label: dict, ax, color: str = 'r', add_title: bool = F
                 ax.add_patch(rec)
 
                 if add_title:
-                    ax.annotate(text=obj['classTitle'], xy=(
-                        left, top-10), fontsize='x-small')
+                    try:
+                        ax.annotate(text=obj['classTitle'], xy=(
+                            left, top-10), fontsize='x-small')
+                    except:
+                        ax.annotate(s=obj['classTitle'], xy=(
+                            left, top-10), fontsize='x-small')
+
 
 
 def rgb_to_opponent_space(img, normalize=False):
