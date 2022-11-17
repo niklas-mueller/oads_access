@@ -634,19 +634,25 @@ def plot_crops_from_data_tuple(data_tuple, min_size=(0, 0), figsize=(18, 30), ma
     _n = int(np.ceil(np.sqrt(_n)))
     fig, ax = plt.subplots(_n, _n, figsize=figsize)
 
-    for axis, obj in zip(ax.flatten(), label['objects']):
+    for index, (axis, obj) in enumerate(zip(ax.flatten(), label['objects'])):
         crop = get_image_crop(img, obj, min_size=min_size,
                               max_size=max_size, is_raw=label['is_raw'])
         axis.imshow(crop)
         axis.set_title(obj['classTitle'])
         axis.axis('off')
 
+    try:
+        for i in range(index, len(ax.flatten())):
+            fig.delaxes(ax.flatten()[i])
+    except:
+        pass
+    
     fig.tight_layout()
 
     return fig
 
 
-def add_label_box_to_axis(label: dict, ax, color: str = 'r', add_title: bool = False):
+def add_label_box_to_axis(label: dict, ax, color: str = 'r', add_title: bool = False, fontsize:"int|str"='x-small'):
     """add_label_box_to_axis
 
     Given a label dict and a axis add a rectangular box with the annotation dimensions to the axis.
@@ -679,10 +685,10 @@ def add_label_box_to_axis(label: dict, ax, color: str = 'r', add_title: bool = F
                 if add_title:
                     try:
                         ax.annotate(text=obj['classTitle'], xy=(
-                            left, top-10), fontsize='x-small')
+                            left, top-10), fontsize=fontsize)
                     except:
                         ax.annotate(s=obj['classTitle'], xy=(
-                            left, top-10), fontsize='x-small')
+                            left, top-10), fontsize=fontsize)
 
 
 
