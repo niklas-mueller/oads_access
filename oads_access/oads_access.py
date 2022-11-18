@@ -360,6 +360,8 @@ class OADS_Access():
         with multiprocessing.Pool() as pool:
             print(f"Number of processes: {pool._processes}")
             _ = list(tqdm.tqdm(pool.imap(self._prepare_crops_dataset, dataset_names), total=len(dataset_names)))
+
+        self.check_has_crops()
         
 
     def get_crop_iterator(self, data_iterator: "list|np.ndarray" = None,
@@ -394,9 +396,13 @@ class OADS_Access():
                             obj, is_raw=label['is_raw'])
                 if height > self.max_size_crops[0] or width > self.max_size_crops[1]:
                     continue
-            crop = get_image_crop(
-                        img=img, object=obj, min_size=self.min_size_crops, max_size=self.max_size_crops, is_raw=label['is_raw'])
-            crops.append((crop, obj))
+
+            try:
+                crop = get_image_crop(
+                            img=img, object=obj, min_size=self.min_size_crops, max_size=self.max_size_crops, is_raw=label['is_raw'])
+                crops.append((crop, obj))
+            except:
+                continue
 
             if save_files:
                 fileending = '.jpg'
@@ -646,7 +652,7 @@ def plot_crops_from_data_tuple(data_tuple, min_size=(0, 0), figsize=(18, 30), ma
             fig.delaxes(ax.flatten()[i])
     except:
         pass
-    
+
     fig.tight_layout()
 
     return fig
