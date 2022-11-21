@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
-from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers
+from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn
 import multiprocessing
 
 if __name__ == '__main__':
@@ -27,7 +27,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_epochs', help='Number of epochs for training.')
     parser.add_argument('--force_recrop', help='Whether to recompute the crops from the images.', default=False)
     parser.add_argument('--get_visuals', help='Whether to run some visual instead of training.', default=False)
-    parser.add_argument('--optimizer', help='Optimizer to use for training', default='sgd')
+    parser.add_argument('--optimizer', help='Optimizer to use for training', default='adam')
     parser.add_argument('--model_path', help='Path to model to continue training on.', default=None)
     parser.add_argument('--model_type', help='Model to use for training. Can be "test" or "retina_cortex"', default='retina_cortex')
     parser.add_argument('--image_representation', help='Way images are represented. Can be `RGB`, `COC` (color opponent channels)', default='RGB')
@@ -56,15 +56,16 @@ if __name__ == '__main__':
         file_formats = ['.jpg']
         convert_to_opponent_space = False
     elif args.image_representation == 'COC':
-        print(f"Image representation: color opponent space. File format: .npy")
-        file_formats = ['.npy']
+        print(f"Image representation: color opponent space. File format: .ARW")
+        #file_formats = ['.npy']
+        file_formats = ['.ARW']
         convert_to_opponent_space = True
     else:
         print(f"Image representation is not know. Exiting.")
         exit(1)
 
     home = args.input_dir
-    oads = OADS_Access(home, file_formats=file_formats, min_size_crops=size, max_size_crops=size)
+    oads = OADS_Access(home, file_formats=file_formats, use_avg_crop_size=True)
 
     # Compute crops if necessary
     if args.force_recrop:
@@ -127,9 +128,9 @@ if __name__ == '__main__':
     testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True, class_index_mapping=class_index_mapping, transform=transform, device=device)
 
 
-    trainloader = DataLoader(traindataset, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
-    valloader = DataLoader(valdataset, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
-    testloader = DataLoader(testdataset, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
+    trainloader = DataLoader(traindataset, collate_fn=collate_fn, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
+    valloader = DataLoader(valdataset, collate_fn=collate_fn, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
+    testloader = DataLoader(testdataset, collate_fn=collate_fn, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
 
     print(f"Loaded data loaders")
 
