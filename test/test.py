@@ -30,6 +30,10 @@ image_name = list(oads.image_names.keys())[0]
 
 # print(oads.load_crop_from_image(image_name=image_name, index=0))
 
+# oads.min_size_crops = size
+# oads.max_size_crops = size
+# oads.prepare_crops()
+
 
 train_ids, val_ids, test_ids = oads.get_train_val_test_split_indices(use_crops=True)
 
@@ -49,6 +53,8 @@ transform = transforms.Compose([
 ])
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+print(f"Using device {device}")
 
 traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, class_index_mapping=class_index_mapping, transform=transform, device=device)
 valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True, class_index_mapping=class_index_mapping, transform=transform, device=device)
@@ -97,7 +103,8 @@ print("Done getting data loader")
 
 
 being = time.time()
-for i in trainloader:
+for i, data in enumerate(trainloader):
+    print(i)
     pass
 end = time.time()
 
