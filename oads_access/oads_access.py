@@ -1031,6 +1031,8 @@ class OADSImageDataset(Dataset):
         if self.target_transform:
             label = self.target_transform(label)
 
+        img = img.float()
+
         if self.target == 'image':
             label = img
 
