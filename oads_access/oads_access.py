@@ -641,7 +641,8 @@ class OADS_Access():
 
     def apply_per_dataset(self, args):
         results = {}
-        for image_name in self.images_per_dataset[args[0]]:
+        image_counter = 0
+        for image_name in self.images_per_dataset[args]:
             tup = self.load_image(image_name=image_name)
             if tup is not None:
                 if self.max_number_images is not None and image_counter >= self.max_number_images:
@@ -651,7 +652,7 @@ class OADS_Access():
 
     def apply_per_image(self, custom_function, max_number_images: int = None):
         results = {}
-        image_counter = 0
+        
         self.custom_function = custom_function
         self.max_number_images = max_number_images
         with multiprocessing.Pool(self.n_processes) as pool:

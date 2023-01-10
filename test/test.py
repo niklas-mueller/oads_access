@@ -34,15 +34,17 @@ image_name = list(oads.image_names.keys())[0]
 # oads.max_size_crops = size
 # oads.prepare_crops()
 
+use_crops = True
 
-train_ids, val_ids, test_ids = oads.get_train_val_test_split_indices(use_crops=True)
+train_ids, val_ids, test_ids = oads.get_train_val_test_split_indices(use_crops=use_crops)
 
+print(len(train_ids))
 
 input_channels = size[0] #np.array(train_data[0][0]).shape[-1]
 output_channels = len(oads.get_class_mapping())
 class_index_mapping = {key: index for index, key in enumerate(list(oads.get_class_mapping().keys()))}
 
-batch_size = 32
+batch_size = 8
 
 
 # Get the custom dataset and dataloader
@@ -56,9 +58,9 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 print(f"Using device {device}")
 
-traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, class_index_mapping=class_index_mapping, transform=transform, device=device)
-valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True, class_index_mapping=class_index_mapping, transform=transform, device=device)
-testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True, class_index_mapping=class_index_mapping, transform=transform, device=device)
+traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=use_crops, class_index_mapping=class_index_mapping, transform=transform, device=device)
+valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=use_crops, class_index_mapping=class_index_mapping, transform=transform, device=device)
+testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=use_crops, class_index_mapping=class_index_mapping, transform=transform, device=device)
 
 
 class MultiEpochsDataLoader(torch.utils.data.DataLoader):
@@ -94,9 +96,9 @@ class _RepeatSampler(object):
 # trainloader = MultiEpochsDataLoader(traindataset, collate_fn=collate_fn, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
 # valloader = MultiEpochsDataLoader(valdataset, collate_fn=collate_fn, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
 # testloader = MultiEpochsDataLoader(testdataset, collate_fn=collate_fn, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
-trainloader = DataLoader(traindataset, collate_fn=collate_fn, batch_size=batch_size, shuffle=True, num_workers=0)#multiprocessing.cpu_count())
-valloader = DataLoader(valdataset, collate_fn=collate_fn, batch_size=batch_size, shuffle=True, num_workers=0)#multiprocessing.cpu_count())
-testloader = DataLoader(testdataset, collate_fn=collate_fn, batch_size=batch_size, shuffle=True, num_workers=0)#multiprocessing.cpu_count())
+trainloader = DataLoader(traindataset, collate_fn=collate_fn, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
+valloader = DataLoader(valdataset, collate_fn=collate_fn, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
+testloader = DataLoader(testdataset, collate_fn=collate_fn, batch_size=batch_size, shuffle=True, num_workers=multiprocessing.cpu_count())
 
 
 print("Done getting data loader")
