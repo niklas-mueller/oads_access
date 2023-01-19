@@ -15,15 +15,16 @@ images = os.listdir("/home/niklas/projects/data/oads/oads_arw/ARW")
 
 def to_tiff(args):
     index, image_name = args
+    image_name=image_name.split(".")[0]
     try:
-        image, _ = oads.load_image(image_name=image_name.split(".")[0])
+        image, _ = oads.load_image(image_name=image_name)
     except KeyError as e:
         return
     pil_image = Image.fromarray(image)
-    filename = f"{index}.tiff"
+    filename = f"{image_name}.tiff"
     pil_image.save(fp=os.path.join(tiff_dir, filename))  
 
-with multiprocessing.Pool() as pool:
+with multiprocessing.Pool(12) as pool:
     _ = list(tqdm.tqdm(pool.imap(to_tiff, enumerate(images)), total=len(images)))
 
 
