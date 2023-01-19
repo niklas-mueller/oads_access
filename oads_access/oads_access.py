@@ -864,7 +864,18 @@ def get_annotation_dimensions(obj: dict, is_raw, min_size: tuple = None, max_siz
     return ((left, top), (right, bottom)), min_size, max_size
 
 
-def add_label_box_to_axis(label: dict, ax, color: str = 'r', add_title: bool = False):
+def add_label_box_to_axis(obj: dict, ax, is_raw:bool, color:str='r', add_title:bool=False):
+    ((left, top), (right, bottom)), _, _ = get_annotation_dimensions(
+        obj, is_raw=is_raw)
+    rec = Rectangle(xy=(left, top), height=bottom -
+                    top, width=right-left, fill=False, color=color)
+    ax.add_patch(rec)
+
+    if add_title:
+        ax.annotate(text=obj['classTitle'], xy=(
+            left, top-10), fontsize='x-small')
+
+def add_label_boxes_to_axis(label: dict, ax, color: str = 'r', add_title: bool = False):
     """add_label_box_to_axis
 
     Given a label dict and a axis add a rectangular box with the annotation dimensions to the axis.
@@ -885,18 +896,10 @@ def add_label_box_to_axis(label: dict, ax, color: str = 'r', add_title: bool = F
     >>> 
     """
     if len(label['objects']) > 0:
-        img_height, img_width = label['size']['height'], label['size']['width']
+        # img_height, img_width = label['size']['height'], label['size']['width']
         for obj in label['objects']:
             if obj['geometryType'] == 'rectangle':
-                ((left, top), (right, bottom)), _, _ = get_annotation_dimensions(
-                    obj, is_raw=label['is_raw'])
-                rec = Rectangle(xy=(left, top), height=bottom -
-                                top, width=right-left, fill=False, color=color)
-                ax.add_patch(rec)
-
-                if add_title:
-                    ax.annotate(text=obj['classTitle'], xy=(
-                        left, top-10), fontsize='x-small')
+                add_label_box_to_axis(obj=obj, ax=ax, color=color, add_title=add_title, is_raw=label['is_raw'])
 
 
 def rgb_to_opponent_space(img, normalize=False):
