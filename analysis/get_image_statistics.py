@@ -62,6 +62,12 @@ def get_statistics(image, index=None, use_mean=False):
     return mean, std, _ce, _sc, _beta, _gamma
 
 
+# 1. Generate a lot of random (for now) crops
+# 2. Compute SC/CE on all of those
+# 3. Get distribution
+# 4. Sample from it as if it was a uniform distribution
+# 5. Only use those images
+
 for image_index, image_name in enumerate(image_names):
     # img, obj = oads.load_image(image_name.split('.')[0])
     img = TiffImagePlugin.TiffImageFile(fp=os.path.join(basedir, 'oads_arw', 'tiff', image_name))

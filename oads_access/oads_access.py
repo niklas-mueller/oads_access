@@ -32,7 +32,7 @@ class OADS_Access():
 
     def __init__(self, basedir: str, file_formats: list = None, use_jpg: bool = False, use_avg_crop_size: bool = True,
                  min_size_crops: tuple = (0, 0), max_size_crops: tuple = None, exclude_oversized_crops: bool = False,
-                 n_processes: int = 8):
+                 n_processes: int = 8, exclude_classes: list = []):
         self.basedir = basedir
         self.file_formats = file_formats
         self.min_size_crops = min_size_crops
@@ -58,6 +58,8 @@ class OADS_Access():
         self.images_per_dataset = {dataset_name: []
                                    for dataset_name in self.datasets}
 
+        self.images_per_class = {}
+        self.classes = []
         self.image_names = {}
 
         for dataset_name in self.datasets:
@@ -96,11 +98,28 @@ class OADS_Access():
                         i += 1
                     else:
                         break
-
+                
+                ################
+                # Get annotations
+                if os.path.exists(tup['annotation_file_path']):
+                    tup['object_labels'] = []
+                    with open(tup['annotation_file_path'], 'r') as f:
+                        content = json.load(f)
+                        for obj in content['objects']:
+                            if obj['classTitle'] not in exclude_classes:
+                                tup['object_labels'].append(obj['classTitle'])
+                                self.classes.append(obj['classTitle'])
+                                if obj['classTitle'] in self.images_per_class:
+                                    self.images_per_class[obj['classTitle']].append(f"{file_id}_{i}")
+                                else:
+                                    self.images_per_class[obj['classTitle']] = [f"{file_id}_{i}"]
+                ################
+    
                 self.image_names[file_id] = tup
                 self.images_per_dataset[dataset_name].append(
                     file_id)
 
+        self.classes = set(self.classes)
         return
 
 
@@ -151,6 +170,12 @@ class OADS_Access():
         >>> 
         """
         return {x['id']: x['title'] for x in self.get_meta_info()['classes']}
+
+    def get_class(self, image_name:str, index:int, dataset_name:str = None):
+        if 'object_labels' in self.image_names[image_name]:
+            return self.image_names[image_name][index]
+        else:
+            return self.get_annotation(image_name=image_name)['objects'][index]['classTitle']
 
     def get_annotation(self, image_name: str,  dataset_name: str = None,  is_raw=False):
         """get_annotation

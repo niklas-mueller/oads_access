@@ -10,7 +10,7 @@ from result_manager.result_manager import ResultManager
 from oads_access.oads_access import OADS_Access, OADSImageDataset, plot_image_in_color_spaces
 # from retina_model import RetinaCortexModel
 import torchvision.transforms as transforms
-from torchvision.models import resnet18, resnet50, alexnet
+from torchvision.models import resnet18, resnet50, alexnet, vgg16
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -51,7 +51,7 @@ if __name__ == '__main__':
     if not torch.cuda.is_available():
         print("GPU not available. Exiting ....")
         device = torch.device('cpu')
-        # exit(1)
+        exit(1)
     else:
         device = torch.device("cuda")
         print("Using GPU!")
@@ -179,7 +179,11 @@ if __name__ == '__main__':
             in_features=2048, out_features=output_channels, bias=True)
     elif args.model_type == 'alexnet':
         model = alexnet()
-        model.classifier[6] = torch.nn.Linear(4096, output_channels)
+        model.classifier[6] = torch.nn.Linear(4096, output_channels, bias=True)
+    elif args.model_type == 'vgg16':
+        model = vgg16()
+        model.classifier[-1] = torch.nn.Linear(4096, output_channels, bias=True)
+
     # elif args.model_type == 'retina_cortex':
     #     model = RetinaCortexModel(n_retina_layers=2, n_retina_in_channels=n_input_channels, n_retina_out_channels=2, retina_width=32,
     #                             input_shape=size, kernel_size=(9,9), n_vvs_layers=2, out_features=output_channels, vvs_width=32)

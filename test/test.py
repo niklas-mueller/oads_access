@@ -5,21 +5,38 @@ from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, colla
 import torch
 import time, multiprocessing
 import argparse
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib import pyplot as plt
+from result_manager.result_manager import ResultManager
+import numpy as np
 
 #home = '../../data/oads'
 parser = argparse.ArgumentParser()
-parser.add_argument('--home', help='Path to input directory.')
+parser.add_argument('--home', help='Path to input directory.', default='/home/niklas/projects/data/oads')
 
 args = parser.parse_args()
 
 home = args.home
-
+result_manager = ResultManager(root='./analysis')
 size = (400,400)
-oads = OADS_Access(home, max_size_crops=size, min_size_crops=size)
+oads = OADS_Access(home, exclude_classes=['MASK', 'Xtra Class 2', 'Xtra Class 1'])#, max_size_crops=size, min_size_crops=size)
 
 # print(len(oads.image_names))
 
 image_name = list(oads.image_names.keys())[0]
+
+fig, ax = plt.subplots(1,1, figsize=(10,8))
+classes = []
+height = []
+for _class, images in oads.images_per_class.items():
+    classes.append(_class)
+    height.append(len(images))
+
+inds = np.argsort(height)
+ax.bar(x=np.array(classes)[inds], height=np.array(height)[inds])
+ax.set_xticklabels(classes, rotation=45)
+result_manager.save_pdf(figs=[fig], filename='oads_image_statistics.pdf')
+
 
 # print(oads.image_names[image_name])
 
