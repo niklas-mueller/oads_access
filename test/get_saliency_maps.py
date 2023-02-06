@@ -14,7 +14,7 @@ image_folder = "/home/niklas/projects/data/oads/oads_arw/tiff"
 # image_names = ['0.tiff', '1.tiff']
 image_names = os.listdir(image_folder)
 
-result_manager = ResultManager(root='/home/niklas/projects/oads_access/analysis/results')
+result_manager = ResultManager(root='/home/niklas/projects/oads_access/results')
 
 images_per_page = 2
 

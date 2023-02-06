@@ -6,35 +6,23 @@ import tqdm
 
 oads = OADS_Access(basedir="/home/niklas/projects/data/oads")
 
-# data = oads.get_data_list()
-
 tiff_dir = "/home/niklas/projects/data/oads/oads_arw/tiff"
 
-#os.makedirs(tiff_dir, exists_ok=True)
+os.makedirs(tiff_dir, exists_ok=True)
 images = os.listdir("/home/niklas/projects/data/oads/oads_arw/ARW")
 
-def to_tiff(args):
-    index, image_name = args
+def to_tiff(image_name):
     image_name=image_name.split(".")[0]
     try:
         image, _ = oads.load_image(image_name=image_name)
-    except KeyError as e:
+    except KeyError:
         return
     pil_image = Image.fromarray(image)
     filename = f"{image_name}.tiff"
     pil_image.save(fp=os.path.join(tiff_dir, filename))  
 
 with multiprocessing.Pool(12) as pool:
-    _ = list(tqdm.tqdm(pool.imap(to_tiff, enumerate(images)), total=len(images)))
+    _ = list(tqdm.tqdm(pool.imap(to_tiff, images), total=len(images)))
 
-
-# for index, image_name in enumerate(images):  
-#     try:
-#         image, _ = oads.load_image(image_name=image_name.split(".")[0])
-#     except KeyError as e:
-#         continue
-#     pil_image = Image.fromarray(image[0])
-#     filename = f"{index}.tiff"
-#     pil_image.save(fp=os.path.join(tiff_dir, filename))  
 
 print("Successfully converted to tiff!")
