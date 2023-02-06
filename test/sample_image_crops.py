@@ -6,7 +6,7 @@ from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
 from result_manager.result_manager import ResultManager
 from oads_access.oads_access import OADS_Access
-from oads_access.utils import get_random_crops, get_bin_values, imscatter
+from oads_access.utils import get_random_crops, get_bin_values, imscatter, plot_images
 import numpy as np
 from lgnpy.CEandSC.lgn_statistics import lgn_statistics
 from lgnpy.run_LGNstatistics import loadmat
