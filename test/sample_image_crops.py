@@ -85,7 +85,7 @@ if __name__ == '__main__':
     result_manager = ResultManager(root='/home/niklas/projects/oads_access/results')
 
     results = result_manager.load_result('lgn_statistics.pkl')
-    force_recompute = False or results is None
+    force_recompute = True or results is None
 
     figs = []
 
@@ -93,8 +93,8 @@ if __name__ == '__main__':
     if force_recompute:
         ce_results = np.ones((len(image_names),3,number_crops_per_image+1,2))
         sc_results = np.ones((len(image_names),3,number_crops_per_image+1,2))
-        beta_results = np.ones((len(image_names),3))
-        gamma_results = np.ones((len(image_names),3))
+        beta_results = np.ones((len(image_names),3,number_crops_per_image+1,2))
+        gamma_results = np.ones((len(image_names),3,number_crops_per_image+1,2))
         jpeg_factors = [(0,0) for _ in range(len(image_names))]
         filenames = ['' for _ in range(len(image_names))]
         crop_indices = [[] for _ in range(len(image_names))]
