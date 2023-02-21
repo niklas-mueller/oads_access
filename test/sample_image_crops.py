@@ -1,3 +1,5 @@
+import random
+import time
 import io
 from itertools import combinations
 from PIL import Image
@@ -7,7 +9,7 @@ from matplotlib.gridspec import GridSpec
 import matplotlib.pyplot as plt
 from result_manager.result_manager import ResultManager
 from oads_access.oads_access import OADS_Access
-from oads_access.utils import get_random_crops, get_bin_values, imscatter, imscatter_all, plot_images
+from oads_access.utils import get_random_crops, get_bin_values, imscatter, imscatter_all, plot_images, joint_plot
 import numpy as np
 from lgnpy.CEandSC.lgn_statistics import lgn_statistics
 from lgnpy.run_LGNstatistics import loadmat
@@ -85,7 +87,7 @@ if __name__ == '__main__':
     result_manager = ResultManager(root='/home/niklas/projects/oads_access/results')
 
     results = result_manager.load_result('lgn_statistics.pkl')
-    force_recompute = True or results is None
+    force_recompute = False or results is None
 
     figs = []
 
@@ -222,28 +224,80 @@ if __name__ == '__main__':
 
     jpeg_comp_rate = np.array(jpeg_factors)[:,1] / np.array(jpeg_factors)[:,0]
 
-    fig, ax = plt.subplots(1,2, figsize=(10,5))
+    fig, ax = plt.subplots(2,3, figsize=(10,5))
 
     
     factors = jpeg_comp_rate
-    lower = np.percentile(factors, q=1)
-    upper = np.percentile(factors, q=99)
-    n_bins = 20
+    lower = np.percentile(factors, q=5)
+    upper = np.percentile(factors, q=95)
+    n_bins = 25
     count, bins = np.histogram(factors[(factors > lower) & (factors < upper)], bins=n_bins)
     indices, values = get_bin_values(data=factors, bins=bins, min_count=count.min())
 
-    ax[0].scatter(sc_full, ce_full, c=factors)
-    ax[0].set_xlabel('SC')
-    ax[0].set_ylabel('CE')
-    ax[0].set_title('All points')
+    chosen_sc = np.array(sc_full)[indices.flatten()]
+    chosen_ce = np.array(ce_full)[indices.flatten()]
+    chosen_sc_peri = np.array(sc_peri_full)[indices.flatten()]
+    chosen_ce_peri = np.array(ce_peri_full)[indices.flatten()]
+    chosen_factors = np.array(factors)[indices.flatten()]
 
-    ax[1].scatter(np.array(sc_full)[indices.flatten()], np.array(ce_full)[indices.flatten()], c=factors[indices.flatten()])
-    ax[1].set_xlabel('SC')
-    ax[1].set_ylabel('CE')
-    ax[1].set_title(f'Uniform JPEG Distribution: {count.min()} number of points per bin -> {count.min() * n_bins} points')
+    ax[0, 0].scatter(sc_full, ce_full, c=factors)
+    ax[0, 0].set_xlabel('SC')
+    ax[0, 0].set_ylabel('CE')
+    ax[0, 0].set_title('All points')
 
+    ax[1, 0].scatter(sc_full, sc_peri_full, c=factors)
+    ax[1, 0].set_xlabel('SC')
+    ax[1, 0].set_ylabel('CE')
+    ax[1, 0].set_title('All points')
+
+    ax[0, 1].scatter(chosen_sc, chosen_ce, c=chosen_factors)
+    ax[0, 1].set_xlabel('SC')
+    ax[0, 1].set_ylabel('CE')
+    # ax[0, 1].set_title(f'Uniform JPEG Distribution: {count.min()} number of points per bin -> {count.min() * n_bins} points')
+
+    # figs.append(fig)
+
+
+    ##########
+    ### Find minimum correlation
+    rng = np.random.default_rng()
+    sample_size = 995
+    min_corr = 1.0
+    min_samples = ()
+    # Compute single contributions to correlation
+    # pick initial set of points
+    start = time.time()
+    print(len(chosen_ce))
+    # combs = combinations(range(len(chosen_ce)), sample_size)
+    combs = set()
+    N = 10000
+    while len(combs) < N:
+        combs.add(tuple(sorted(random.sample(range(len(chosen_ce)), sample_size))))
+    # np.random.shuffle(combs)
+    for i, comb in enumerate(iter(combs)):
+        # if i > 200000:
+        #     break
+        _center = chosen_ce[list(comb)]
+        _peri = chosen_ce_peri[list(comb)]
+        corr = np.corrcoef(_center, _peri)[1,0]
+        if corr < min_corr:
+            # min_samples = (_center, _peri)
+            min_samples = list(comb)
+            min_corr = corr
+    end = time.time()
+    print(min_corr)
+    print(f'Combinations Time: {end-start}')
+
+    ax[0, 2].scatter(chosen_sc[min_samples], chosen_ce[min_samples], c=chosen_factors[min_samples])
+    # ax[0, 2].set_xlim((x_min, x_max))
+    # ax[0, 2].set_ylim((y_min, y_max))
+    ax[0, 2].set_xlabel('SC')
+    ax[0, 2].set_ylabel('CE')
+    ax[0, 2].set_title(f'{min_corr:.4f}')
+
+    fig.tight_layout()
     figs.append(fig)
-
+    
 
     # #############
     images = []
@@ -252,7 +306,8 @@ if __name__ == '__main__':
     for index in range(len(sc_full)):
         if os.path.exists(os.path.join(basedir, 'oads_arw', 'tiff', filenames[index])):
             if sc_full[index] > 1.4 or ce_full[index] > 0.005:
-                images.append(Image.open(os.path.join(basedir, 'oads_arw', 'tiff', filenames[index])))
+                img = Image.open(os.path.join(basedir, 'oads_arw', 'tiff', filenames[index]))
+                images.append(img)
                 titles.append(f'sc: {sc_full[index]:.4f}\nce: {ce_full[index]:.4f}')
                 tups.append((sc_full[index], ce_full[index], os.path.join(basedir, 'oads_arw', 'tiff', filenames[index])))
 
@@ -260,10 +315,22 @@ if __name__ == '__main__':
     fig.tight_layout()
     figs.append(fig)
 
+
     fig, ax = plt.subplots(1,1, figsize=(25,25))
     imscatter_all(images=[x[2] for x in tups], xs=[x[0] for x in tups], ys=[x[1] for x in tups], xlabel='SC', ylabel='CE', ax=ax, zoom=0.01)
     figs.append(fig)
 
+
+    fig, ax = plt.subplots(1,1,figsize=(10,5))
+    img = np.array(images[0])
+    img[-224:,-224:,:] = 255
+    ax.imshow(img)
+    ax.axis('off')
+    # ax.imshow(np.ones((224,224)))
+    figs.append(fig)
+
+    fig.savefig('/home/niklas/projects/oads_access/results/oads_resolution_demo.png')
+    exit(1)
     # #############
     jpeg_comp_rate_crops = (np.array(crop_jpeg_factors)[:,:,1] / np.array(crop_jpeg_factors)[:,:,0])#.flatten()
 
@@ -277,17 +344,17 @@ if __name__ == '__main__':
     fig, ax = plt.subplots(1,3, figsize=(30,15))
 
     
-    factors = jpeg_comp_rate_crops
-    lower = np.percentile(factors, q=1)
-    upper = np.percentile(factors, q=99)
+    factors_crops = jpeg_comp_rate_crops
+    lower = np.percentile(factors_crops, q=1)
+    upper = np.percentile(factors_crops, q=99)
     n_bins = 40
-    count, bins = np.histogram(factors[(factors > lower) & (factors < upper)], bins=n_bins)
-    indices, values = get_bin_values(data=factors, bins=bins, min_count=count.min())
+    count, bins = np.histogram(factors_crops[(factors_crops > lower) & (factors_crops < upper)], bins=n_bins)
+    indices, values = get_bin_values(data=factors_crops, bins=bins, min_count=count.min())
 
     x_min, x_max = np.nanmin(sc_crops), np.nanmax(sc_crops)
     y_min, y_max = np.nanmin(ce_crops), np.nanmax(ce_crops)
 
-    ax[0].scatter(sc_crops, ce_crops, c=factors)
+    ax[0].scatter(sc_crops, ce_crops, c=factors_crops)
     ax[0].set_xlim((x_min, x_max))
     ax[0].set_ylim((y_min, y_max))
     ax[0].set_xlabel('SC')
@@ -295,7 +362,7 @@ if __name__ == '__main__':
     ax[0].set_title('All crops')
 
     indices = indices.flatten()
-    ax[1].scatter(np.array(sc_crops)[indices], np.array(ce_crops)[indices], c=factors[indices])
+    ax[1].scatter(np.array(sc_crops)[indices], np.array(ce_crops)[indices], c=factors_crops[indices])
     ax[1].set_xlim((x_min, x_max))
     ax[1].set_ylim((y_min, y_max))
     ax[1].set_xlabel('SC')
@@ -306,13 +373,13 @@ if __name__ == '__main__':
     np.random.shuffle(indices)
     indices = indices[:995]
 
-    chosen_ce = np.array(ce_crops)[indices]
-    chosen_sc = np.array(sc_crops)[indices]
-    chosen_ce_peri = np.array(ce_peri_crops)[indices]
-    chosen_sc_peri = np.array(sc_peri_crops)[indices]
-    chosen_factors = factors[indices]
+    chosen_ce_crops = np.array(ce_crops)[indices]
+    chosen_sc_crops = np.array(sc_crops)[indices]
+    chosen_ce_crops_peri = np.array(ce_peri_crops)[indices]
+    chosen_sc_crops_peri = np.array(sc_peri_crops)[indices]
+    chosen_factors_crops = factors_crops[indices]
 
-    ax[2].scatter(chosen_sc, chosen_ce, c=chosen_factors)
+    ax[2].scatter(chosen_sc_crops, chosen_ce_crops, c=chosen_factors_crops)
     ax[2].set_xlim((x_min, x_max))
     ax[2].set_ylim((y_min, y_max))
     ax[2].set_xlabel('SC')
@@ -321,8 +388,13 @@ if __name__ == '__main__':
 
     figs.append(fig)
 
-    ce_corr = np.corrcoef(chosen_ce, chosen_ce_peri)[1,0]
-    sc_corr = np.corrcoef(chosen_sc, chosen_sc_peri)[1,0]
+    ##########
+    fig = joint_plot(xs=[sc_full, sc_crops], ys=[ce_full, ce_crops], cs=[factors, factors_crops], figsize=(25,20), axtitles=['Full Images', 'Crops'], xlabels=['SC', 'SC'], ylabels=['CE', 'CE'])
+    figs.append(fig)
+    ##########
+
+    ce_corr = np.corrcoef(chosen_ce_crops, chosen_ce_crops_peri)[1,0]
+    sc_corr = np.corrcoef(chosen_sc_crops, chosen_sc_crops_peri)[1,0]
     print(f'CE Center/Peri correlation: {ce_corr}\nSC Center/Peri correlation: {sc_corr}')
 
 
@@ -339,7 +411,7 @@ if __name__ == '__main__':
                 titles.append(f'sc: {sc_crops[index]:.4f}\nce: {ce_crops[index]:.4f}')
                 tups.append((sc_crops[index], ce_crops[index], crop))
 
-    fig = plot_images(images=images, titles=titles)
+    fig = plot_images(images=images, titles=titles, max_images=50)
     fig.tight_layout()
     figs.append(fig)
 
@@ -349,21 +421,7 @@ if __name__ == '__main__':
 
 
 
-    ##########
-    # ### Find minimum correlation
-    # rng = np.random.default_rng()
-    # sample_size = 100
-    # min_corr = 1.0
-    # min_samples = ()
-    # # Compute single contributions to correlation
-    # # pick initial set of points
-    # for i, comb in enumerate(iter(combinations(range(len(chosen_ce)), sample_size))):
-    #     _center = chosen_ce[list(comb)]
-    #     _peri = chosen_ce_peri[list(comb)]
-    #     corr = np.corrcoef(_center, _peri)[1,0]
-    #     if corr < min_corr:
-    #         min_samples = (_center, _peri)
-    #         min_corr = corr
+   
 
     
 

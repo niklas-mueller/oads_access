@@ -4,6 +4,7 @@ import sys
 from datetime import datetime
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib import pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 # from model import visTensor, TestModel, evaluate
 from result_manager.result_manager import ResultManager
@@ -16,22 +17,30 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
-from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn, ToJpeg, ToOpponentChannel
+from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn, ToJpeg, ToOpponentChannel, get_confusion_matrix, get_result_figures
 import multiprocessing
+from PIL import Image
+from oads_access.utils import plot_images, imscatter_all
 
 if __name__ == '__main__':
+
+    c_time = datetime.now().strftime("%d-%m-%y-%H:%M:%S")
+
     # Instantiate the parser
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--input_dir', help='Path to input directory.')
-    parser.add_argument('--output_dir', help='Path to output directory.')
+    parser.add_argument('--input_dir', help='Path to input directory.',
+                        default='/home/niklas/projects/data/oads')
+    parser.add_argument('--output_dir', help='Path to output directory.',
+                        default='/home/niklas/projects/oads_access/results/dnn/{c_time}')
     parser.add_argument('--model_name', help='Model name to save the model under',
-                        default=f'model_{datetime.now().strftime("%d-%m-%y-%H:%M:%S")}')
-    parser.add_argument('--n_epochs', help='Number of epochs for training.')
+                        default=f'model_{c_time}')
     parser.add_argument(
-        '--force_recrop', help='Whether to recompute the crops from the images.', default=False)
+        '--n_epochs', help='Number of epochs for training.', default=30)
     parser.add_argument(
-        '--get_visuals', help='Whether to run some visual instead of training.', default=False)
+        '-force_recrop', help='Whether to recompute the crops from the images.', action='store_true')
+    parser.add_argument(
+        '-get_visuals', help='Whether to run some visual instead of training.', action='store_true')
     parser.add_argument(
         '--optimizer', help='Optimizer to use for training', default='adam')
     parser.add_argument(
@@ -41,9 +50,13 @@ if __name__ == '__main__':
     parser.add_argument('--image_representation',
                         help='Way images are represented. Can be `RGB`, `COC` (color opponent channels)', default='RGB')
     parser.add_argument('--n_processes', help='Number of processes to use.',
-                        default=multiprocessing.cpu_count())
-    parser.add_argument('--use_jpeg', help='Whether to use JPEG Compression or not',
-                        default=False)
+                        default=multiprocessing.cpu_count()-1)
+    parser.add_argument(
+        '-use_jpeg', help='Whether to use JPEG Compression or not', action='store_true')
+    parser.add_argument('-new_dataloader', help='Whether to use new dataloader or use the path in --dataloader_path to load existing ones. If new_dataloader is given, --dataloader_path will be use as target directory to store dataloaders', action='store_true')
+    parser.add_argument('--dataloader_path', help='Path to a directory where the dataloaders can be stored from',
+                        default='/home/niklas/projects/oads_access/dataloader')
+    parser.add_argument('-test', help='Whether to test', action='store_true')
 
     args = parser.parse_args()
 
@@ -54,6 +67,7 @@ if __name__ == '__main__':
         exit(1)
     else:
         device = torch.device("cuda")
+        torch.cuda.empty_cache()
         print("Using GPU!")
 
     # Setting weird stuff
@@ -65,23 +79,24 @@ if __name__ == '__main__':
     size = (400, 400)
 
     if args.image_representation == 'RGB':
-        print(f"Image representation: RGB. File format: .tiff")
-        file_formats = ['.tiff']
+        file_formats = ['.ARW']
         convert_to_opponent_space = False
     elif args.image_representation == 'COC':
-        print(f"Image representation: color opponent space. File format: .tiff")
-        #file_formats = ['.npy']
-        # file_formats = ['.ARW']
-        file_formats = ['.tiff']
+        file_formats = ['.ARW']
+        # file_formats = ['.tiff']
         convert_to_opponent_space = True
 
     else:
         print(f"Image representation is not know. Exiting.")
         exit(1)
+    print(
+        f"Image representation: {args.image_representation}. File format: {file_formats}")
+
+    exclude_classes = ['MASK', "Xtra Class 1", 'Xtra Class 2']
 
     home = args.input_dir
     oads = OADS_Access(home, file_formats=file_formats, use_avg_crop_size=True, n_processes=int(
-        args.n_processes), min_size_crops=size, max_size_crops=size)
+        args.n_processes), min_size_crops=size, max_size_crops=size, exclude_classes=exclude_classes)
 
     # Compute crops if necessary
     if args.force_recrop:
@@ -95,39 +110,16 @@ if __name__ == '__main__':
 
     result_manager = ResultManager(root=args.output_dir)
 
-    # if args.get_visuals:
-    #     fig = oads.plot_image_size_distribution(use_crops=True, figsize=(30, 30))
-    #     result_manager.save_pdf(figs=[fig], filename='image_size_distribution.pdf')
-
-    # get train, val, test split, using crops if specific size
-    train_ids, val_ids, test_ids = oads.get_train_val_test_split_indices(
-        use_crops=True)
-    print(f"Loaded data with train_ids.shape: {len(train_ids)}")
-    print(f"Loaded data with val_ids.shape: {len(val_ids)}")
-    print(f"Loaded data with test_ids.shape: {len(test_ids)}")
-
-    # fig = oads.plot_image_size_distribution(use_crops=True, figsize=(20, 20))
-    # result_manager.save_pdf(figs=[fig], filename='image_size_distribution.pdf')
-    # exit(1)
-
-    if args.get_visuals:
-        print(f"Getting visuals: plot_image_in_color_spaces")
-        figs = []
-        results = oads.apply_per_crop(lambda x: plot_image_in_color_spaces(
-            np.array(x[0]), cmap_opponent='gray'), max_number_crops=50)
-        for _, images in results.items():
-            for _, fig in images.items():
-                figs.append(fig)
-
-        result_manager.save_pdf(
-            figs=figs, filename=f'image_in_color_spaces_{size[0]}x{size[1]}.pdf')
 
     n_input_channels = 3
     output_channels = len(oads.get_class_mapping())
-    class_index_mapping = {key: index for index, key in enumerate(
-        list(oads.get_class_mapping().keys()))}
+    class_index_mapping = {}
+    index_label_mapping = {}
+    for index, (key, item) in enumerate(list(oads.get_class_mapping().items())):
+        class_index_mapping[key] = index
+        index_label_mapping[index] = item
 
-    batch_size = 2
+    batch_size = 32
 
     # print(f"Getting dataset stats")
     # means, stds = oads.get_dataset_stats()
@@ -137,34 +129,58 @@ if __name__ == '__main__':
     # Get the custom dataset and dataloader
     print(f"Getting data loaders")
     transform_list = []
-    if args.use_jpeg:
-        transform_list.append(ToJpeg())
+    # if args.use_jpeg:
+    #     transform_list.append(ToJpeg())
     if convert_to_opponent_space:
         transform_list.append(ToOpponentChannel())
-    
+
     transform_list.append(transforms.ToTensor())
 
     transform = transforms.Compose(transform_list)
-    # transform = transforms.Compose([
-    #     ToJpeg() if args.use_jpeg else None,
-    #     ToOpponentChannel() if convert_to_opponent_space else None,
-    #     transforms.ToTensor(),
     #     # transforms.Normalize(means.mean(axis=0), stds.mean(axis=0))   # TODO fix this
-    # ])
 
-    traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True,
-                                    class_index_mapping=class_index_mapping, transform=transform, device=device)
-    valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True,
-                                  class_index_mapping=class_index_mapping, transform=transform, device=device)
-    testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True,
-                                   class_index_mapping=class_index_mapping, transform=transform, device=device)
+    try:
+        new_dataloader = False
+        trainloader = torch.load(os.path.join(args.dataloader_path, 'trainloader.pth'))
+        testloader = torch.load(os.path.join(args.dataloader_path, 'testloader.pth'))
+        valloader = torch.load(os.path.join(args.dataloader_path, 'valloader.pth'))
 
-    trainloader = DataLoader(traindataset, collate_fn=collate_fn,
-                             batch_size=batch_size, shuffle=True, num_workers=oads.n_processes)
-    valloader = DataLoader(valdataset, collate_fn=collate_fn,
-                           batch_size=batch_size, shuffle=True, num_workers=oads.n_processes)
-    testloader = DataLoader(testdataset, collate_fn=collate_fn,
-                            batch_size=batch_size, shuffle=True, num_workers=oads.n_processes)
+        train_ids = trainloader.dataset.item_ids
+        test_ids = testloader.dataset.item_ids
+        val_ids = valloader.dataset.item_ids
+
+    except (Exception, FileNotFoundError) as e:
+        print(e)
+        new_dataloader = True        
+
+    if args.new_dataloader or new_dataloader:
+        # get train, val, test split, using crops if specific size
+        train_ids, val_ids, test_ids = oads.get_train_val_test_split_indices(
+            use_crops=True)
+        print(f"Loaded data with train_ids.shape: {len(train_ids)}")
+        print(f"Loaded data with val_ids.shape: {len(val_ids)}")
+        print(f"Loaded data with test_ids.shape: {len(test_ids)}")
+
+
+        traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, use_jpeg=args.use_jpeg,
+                                        class_index_mapping=class_index_mapping, transform=transform, device=device)
+        valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True, use_jpeg=args.use_jpeg,
+                                      class_index_mapping=class_index_mapping, transform=transform, device=device)
+        testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True, use_jpeg=args.use_jpeg,
+                                       class_index_mapping=class_index_mapping, transform=transform, device=device)
+
+        trainloader = DataLoader(traindataset, collate_fn=collate_fn,
+                                 batch_size=batch_size, shuffle=True, num_workers=oads.n_processes)
+        valloader = DataLoader(valdataset, collate_fn=collate_fn,
+                               batch_size=batch_size, shuffle=True, num_workers=oads.n_processes)
+        testloader = DataLoader(testdataset, collate_fn=collate_fn,
+                                batch_size=batch_size, shuffle=True, num_workers=oads.n_processes)
+
+        os.makedirs(args.dataloader_path, exist_ok=True)
+        torch.save(trainloader, os.path.join(args.dataloader_path, 'trainloader.pth'))
+        torch.save(testloader, os.path.join(args.dataloader_path, 'testloader.pth'))
+        torch.save(valloader, os.path.join(args.dataloader_path, 'valloader.pth'))
+
 
     print(f"Loaded data loaders")
 
@@ -182,7 +198,8 @@ if __name__ == '__main__':
         model.classifier[6] = torch.nn.Linear(4096, output_channels, bias=True)
     elif args.model_type == 'vgg16':
         model = vgg16()
-        model.classifier[-1] = torch.nn.Linear(4096, output_channels, bias=True)
+        model.classifier[-1] = torch.nn.Linear(4096,
+                                               output_channels, bias=True)
 
     # elif args.model_type == 'retina_cortex':
     #     model = RetinaCortexModel(n_retina_layers=2, n_retina_in_channels=n_input_channels, n_retina_out_channels=2, retina_width=32,
@@ -195,7 +212,7 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load(args.model_path))
 
     # model = torch.nn.DataParallel(model)
-    model = model.to(device) # , dtype=torch.float32
+    model = model.to(device)  # , dtype=torch.float32
 
     criterion = nn.CrossEntropyLoss()
 
@@ -227,8 +244,61 @@ if __name__ == '__main__':
         'output_dir': args.output_dir
     }
 
-    result_manager.save_result(result=info, filename='fitting_description.yaml')
+    if args.test:
+        if args.image_representation == 'COC':
+            cmap_rg = LinearSegmentedColormap.from_list(
+                'rg', ["r", "w", "g"], N=256)
+            cmap_by = LinearSegmentedColormap.from_list(
+                'by', ["b", "w", "y"], N=256)
 
-    train(model=model, trainloader=trainloader, valloader=valloader, device=device,
-          loss_fn=criterion, optimizer=optimizer, n_epochs=int(args.n_epochs), result_manager=result_manager,
-          testloader=testloader, plateau_lr_scheduler=plateau_scheduler)
+            fig, ax = plt.subplots(3, 20, figsize=(30, 10))
+            for index, (image, label) in enumerate(trainloader):
+                if index < 20:
+                    for img, lbl in zip(image, label):
+                        coc = np.array(img)
+                        ax[0][index].imshow(img[0], cmap='gray')
+                        ax[0][index].set_title('I')
+                        ax[1][index].imshow(img[1], cmap=cmap_rg)
+                        ax[1][index].set_title('RG')
+                        ax[2][index].imshow(img[2], cmap=cmap_by)
+                        ax[2][index].set_title('BY')
+                else:
+                    break
+
+        else:
+            images = []
+            titles = []
+            for index, (image, label) in enumerate(trainloader):
+                if index < 20:
+                    for img, lbl in zip(image, label):
+                        titles.append(index_label_mapping[int(lbl)])
+                        images.append(transforms.ToPILImage()(img))
+                else:
+                    break
+
+            fig = plot_images(images=images, titles=titles, axis_off=False)
+        result_manager.save_pdf(
+            figs=[fig], filename='oads_example_train_stimuli.pdf')
+
+        # current_time = 'Fri_Feb_17_14:13:44_2023'
+        # # eval = evaluate(loader=testloader, model=model, criterion=criterion, verbose=True)
+        # # result_manager.save_result(eval, filename=f'test_results_{current_time}.yml')
+        # # print(oads.classes, len(oads.classes))
+        # # print(class_index_mapping, len(class_index_mapping))
+        # # print(index_label_mapping, len(index_label_mapping))
+        # # exit(1)
+        # confusion_matrix = result_manager.load_result(f'confusion_matrix_{current_time}.npz', allow_pickle=False)
+        # if confusion_matrix is None:
+        #     confusion_matrix = get_confusion_matrix(model=model, loader=testloader, n_classes=len(index_label_mapping), device=device)
+        #     result_manager.save_result(result={'confusion_matrix': confusion_matrix}, filename=f'confusion_matrix_{current_time}.npz')
+
+        # get_result_figures(results=None, model=model, classes=oads.classes, result_manager=result_manager, index_label_mapping=index_label_mapping, confusion_matrix=confusion_matrix, pdf_filename=f'test_visuals_{current_time}.pdf')
+        # if type(confusion_matrix) == np.NpzFile:
+        #     confusion_matrix.close()
+    else:
+        result_manager.save_result(
+            result=info, filename=f'fitting_description_{c_time}.yaml')
+
+        train(model=model, trainloader=trainloader, valloader=valloader, device=device,
+              loss_fn=criterion, optimizer=optimizer, n_epochs=int(args.n_epochs), result_manager=result_manager,
+              testloader=testloader, plateau_lr_scheduler=plateau_scheduler, current_time=c_time)

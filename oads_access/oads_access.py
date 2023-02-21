@@ -4,10 +4,12 @@ import os
 import json
 from PIL import Image
 from matplotlib import test
+from pytorch_utils.pytorch_utils import ToJpeg
 import rawpy
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import numpy as np
+import io
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 from torch import nn as nn
@@ -42,7 +44,7 @@ class OADS_Access():
 
         self.exclude_oversized_crops = exclude_oversized_crops
         self.n_processes = n_processes
-
+        self.exclude_classes = exclude_classes
         self.use_jpg = use_jpg
 
         self.img_dir = os.path.join(self.basedir, 'oads_arw', 'ARW')
@@ -86,6 +88,8 @@ class OADS_Access():
                     tup['raw_file_name'] = annotation_file_name.replace(
                         'jpg', 'ARW').replace('.json', '')
                     tup['raw_file_path'] = raw_path
+                else:
+                    continue
 
                 file_id = annotation_file_name.split('.')[0]
                 i = 0
@@ -101,18 +105,23 @@ class OADS_Access():
                 
                 ################
                 # Get annotations
+                tup['object_labels'] = {}
                 if os.path.exists(tup['annotation_file_path']):
-                    tup['object_labels'] = []
                     with open(tup['annotation_file_path'], 'r') as f:
                         content = json.load(f)
-                        for obj in content['objects']:
+                        tup['number_of_annotations'] = len(content['objects'])
+                        for index, obj in enumerate(content['objects']):
                             if obj['classTitle'] not in exclude_classes:
-                                tup['object_labels'].append(obj['classTitle'])
+                                tup['object_labels'][index] = obj['classTitle']
+
                                 self.classes.append(obj['classTitle'])
                                 if obj['classTitle'] in self.images_per_class:
-                                    self.images_per_class[obj['classTitle']].append(f"{file_id}_{i}")
+                                    self.images_per_class[obj['classTitle']].append(f"{file_id}_{index}")
                                 else:
-                                    self.images_per_class[obj['classTitle']] = [f"{file_id}_{i}"]
+                                    self.images_per_class[obj['classTitle']] = [f"{file_id}_{index}"]
+
+                # if len(tup['crop_file_paths']) == 0:
+                #     tup['number_of_annotations'] = len(tup['object_labels'])
                 ################
     
                 self.image_names[file_id] = tup
@@ -255,7 +264,7 @@ class OADS_Access():
 
         fileformat = os.path.splitext(filename)[-1]
         if self.file_formats is not None and fileformat not in self.file_formats:
-            # print(f"File {fileformat} not in file formats {self.file_formats}. Skipping")
+            print(f"File {fileformat} not in file formats {self.file_formats}. Skipping")
             return None
 
         is_raw = False
@@ -283,9 +292,10 @@ class OADS_Access():
 
         return (crop, label)
 
-    def load_crop_from_image(self, image_name: str, index: int,  dataset_name: str = None,  is_opponent_space: bool = False):
-        crop_path = self.image_names[image_name]['crop_file_paths'][index]
-        if os.path.exists(crop_path):
+    def load_crop_from_image(self, image_name: str, index: int,  dataset_name: str = None,  is_opponent_space: bool = False, use_jpeg:bool=False):
+        paths = self.image_names[image_name]['crop_file_paths']
+        if index < len(paths) and os.path.exists(paths[index]):
+            crop_path = paths[index]
             crop, obj = self.load_crop(
                 crop_path, image_name=image_name, index=index)
         else:
@@ -293,19 +303,26 @@ class OADS_Access():
                 dataset_name=dataset_name, image_name=image_name)
 
             if tup is None:
+                print(image_name)
                 return None
 
             img, label = tup
+
+            is_raw = label['is_raw']
+            if use_jpeg:
+                print('here')
+                img = ToJpeg(resize=True)(img)
+                is_raw = True
 
             # This index needs to be normalized/adjust somehow
             obj = label['objects'][index]
             if self.exclude_oversized_crops:
                 width, height = self.get_annotation_size(
-                    obj, is_raw=label['is_raw'])
+                    obj, is_raw=is_raw)
                 if height > self.max_size_crops[0] or width > self.max_size_crops[1]:
                     return None
             crop = self.get_image_crop(
-                img=img, object=obj, is_raw=label['is_raw'], is_opponent_space=is_opponent_space)
+                img=img, object=obj, is_raw=is_raw, is_opponent_space=is_opponent_space)
 
         return crop, obj
 
@@ -431,8 +448,9 @@ class OADS_Access():
 
         return train_data, val_data, test_data
 
-    def get_number_of_annotations(self, image_name: str):
-        annotation = self.get_annotation(image_name=image_name)
+    def get_number_of_annotations(self, image_name: str, annotation=None):
+        if annotation is None:
+            annotation = self.get_annotation(image_name=image_name)
         self.image_names[image_name]['number_of_annotations'] = len(
             annotation['objects'])
 
@@ -443,19 +461,22 @@ class OADS_Access():
             # Tuple of image_name+index for index counts the number of crops for this image
             image_ids = []
             for image_name, info in self.image_names.items():
-                if 'number_of_annotations' in info:
-                    number_of_annotations = info['number_of_annotations']
-                else:
-                    number_of_annotations = self.get_number_of_annotations(
-                        image_name=image_name)
+                # if 'number_of_annotations' in info:
+                #     number_of_annotations = info['number_of_annotations']
+                # else:
+                #     number_of_annotations = self.get_number_of_annotations(
+                #         image_name=image_name)
 
-                for i in range(number_of_annotations):
-                    fileformat = info['crop_file_type']
-                    if self.file_formats is not None and fileformat not in self.file_formats:
-                        continue
-                    if len(self.image_names[image_name]['crop_file_paths']) == 0:
-                        continue
-                    image_ids.append((image_name, i))
+                # for i in range(number_of_annotations):
+                #     fileformat = info['crop_file_type']
+                #     if len(self.image_names[image_name]['crop_file_paths']) > 0:
+                #         if self.file_formats is not None and fileformat not in self.file_formats:
+                #             continue
+
+                #     if self.image_names[image_name]['object_labels'][i] not in self.exclude_classes:
+                #         image_ids.append((image_name, i))
+                for index, _ in self.image_names[image_name]['object_labels'].items():
+                    image_ids.append((image_name, index))
 
         else:
             # image_ids = get_list(self.image_names.items())
@@ -808,6 +829,10 @@ class OADS_Access():
             for _x in img:
                 crop.append(np.array(Image.fromarray(_x).crop(
                     (left, top, right, bottom)), dtype=np.float64))
+                # crop = Image.fromarray(_x).crop(
+                #     (old[0], old[1], old[2], old[3]))
+                # crop = crop.resize(max_size)
+                crop.append(np.array(crop, dtype=np.float64))
 
             crop = np.array(crop, dtype=np.float64).transpose(
                 (1, 2, 0))  # Make sure channels are last
@@ -816,7 +841,10 @@ class OADS_Access():
                 img = Image.fromarray(img)
             if left == right or top == bottom:
                 print(f"Label: {object}")
-            crop = img.crop((left, top, right, bottom))
+            # crop = img.crop((left, top, right, bottom))
+            crop = img.crop((old[0], old[1], old[2], old[3]))
+            max_size = tuple(np.multiply(max_size, 1/4).astype(int))
+            crop = crop.resize(max_size)
         return crop
 
     def plot_crops_from_data_tuple(self, data_tuple, min_size=(0, 0), figsize=(18, 30), max_size=None):
@@ -1014,13 +1042,14 @@ def plot_image_in_color_spaces(image: np.ndarray, figsize=(10, 5), cmap_rgb: str
 
 
 class OADSImageDataset(Dataset):
-    def __init__(self, oads_access: OADS_Access, use_crops: bool, item_ids: list,
+    def __init__(self, oads_access: OADS_Access, use_crops: bool, item_ids: list, use_jpeg:bool=False,
                  class_index_mapping: dict = None, transform=None, target_transform=None,
                  device='cuda:0', target: str = 'label') -> None:
         super().__init__()
 
         self.oads_access = oads_access
         self.use_crops = use_crops
+        self.use_jpeg = use_jpeg
         self.item_ids = item_ids
 
         self.transform = transform
@@ -1037,7 +1066,7 @@ class OADSImageDataset(Dataset):
         if self.use_crops:
             image_name, index = self.item_ids[idx]
             tup = self.oads_access.load_crop_from_image(
-                image_name=image_name, index=index)
+                image_name=image_name, index=index, use_jpeg=self.use_jpeg)
         else:
             image_name = self.item_ids[idx]
             tup = self.oads_access.load_image(image_name=image_name)
@@ -1046,6 +1075,7 @@ class OADSImageDataset(Dataset):
             return None
 
         img, label = tup
+        del tup
 
         if img is None or label is None:
             return None

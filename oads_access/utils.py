@@ -1,10 +1,41 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 from PIL import Image
 import mat73
 from scipy import io
 
+
+def joint_plot(xs, ys, cs=[None], axtitles:list=[''], figtitle='', xlabels:list=[''], ylabels:list=[''], figsize=(15,10)):
+    fig = plt.figure(figsize=figsize)
+
+    if type(xs[0]) == list or type(xs[0]) == np.ndarray:
+        n = len(xs)
+    else:
+        n = 1
+        xs = [xs]
+        ys = [ys]
+
+    gs = GridSpec(4,4*n)
+
+    for i in range(n):
+        ax_scatter = fig.add_subplot(gs[1:4, i*4:i*4+3])
+        ax_hist_x = fig.add_subplot(gs[0, i*4:i*4+3])
+        ax_hist_y = fig.add_subplot(gs[1:4, i*4+3])
+        
+        ax_scatter.scatter(xs[i],ys[i], c=cs[i])
+        ax_scatter.set_xlabel(xlabels[i])
+        ax_scatter.set_ylabel(ylabels[i])
+        ax_scatter.set_title(axtitles[i])
+
+        ax_hist_x.hist(xs[i])
+        ax_hist_y.hist(ys[i], orientation = 'horizontal')
+
+    fig.suptitle(figtitle)
+    fig.tight_layout()
+
+    return fig
 
 def imscatter_all(xs, ys, images, ax=None, zoom=1, title='', xlabel='', ylabel=''):
     if ax is None:
@@ -74,7 +105,7 @@ def get_bin_values(data, bins, min_count):
     return bin_indices, bin_values
 
 
-def plot_images(images, fig=None, max_images: int = None, figsize=(15, 10), titles:list=None):
+def plot_images(images, fig=None, max_images: int = None, figsize=(15, 10), titles:list=None, cmap=None, axis_off:bool=True, orientation='landscape'):
     if max_images is None:
         max_images = len(images)
 
@@ -85,8 +116,12 @@ def plot_images(images, fig=None, max_images: int = None, figsize=(15, 10), titl
     #     n_rows = int(np.floor(np.sqrt(max_images)))
     #     n_cols = int(np.floor(np.sqrt(max_images)))
     # else:
-    n_rows = int(np.floor(np.sqrt(max_images)))
-    n_cols = int(np.ceil(max_images / n_rows))
+    if orientation == 'landscape':
+        n_rows = int(np.floor(np.sqrt(max_images)))
+        n_cols = int(np.ceil(max_images / n_rows))
+    else:
+        n_cols = int(np.floor(np.sqrt(max_images)))
+        n_rows = int(np.ceil(max_images / n_cols))
 
     index = 0
     for _ in range(n_rows):
@@ -94,11 +129,14 @@ def plot_images(images, fig=None, max_images: int = None, figsize=(15, 10), titl
             if index >= max_images:
                 break
             ax = fig.add_subplot(n_rows, n_cols, index+1)
-            ax.imshow(images[index])
-            ax.axis('off')
+            ax.imshow(images[index], cmap=cmap)
+            if axis_off:
+                ax.axis('off')
             if titles is not None and len(titles) > index:
                 ax.set_title(titles[index])
             index += 1
+
+    fig.tight_layout()
 
     return fig
 
