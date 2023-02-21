@@ -32,7 +32,7 @@ if __name__ == '__main__':
     parser.add_argument('--input_dir', help='Path to input directory.',
                         default='/home/niklas/projects/data/oads')
     parser.add_argument('--output_dir', help='Path to output directory.',
-                        default='/home/niklas/projects/oads_access/results/dnn/{c_time}')
+                        default=f'/home/niklas/projects/oads_access/results/dnn/{c_time}')
     parser.add_argument('--model_name', help='Model name to save the model under',
                         default=f'model_{c_time}')
     parser.add_argument(
@@ -141,13 +141,11 @@ if __name__ == '__main__':
 
     try:
         new_dataloader = False
-        trainloader = torch.load(os.path.join(args.dataloader_path, 'trainloader.pth'))
-        testloader = torch.load(os.path.join(args.dataloader_path, 'testloader.pth'))
-        valloader = torch.load(os.path.join(args.dataloader_path, 'valloader.pth'))
-
-        train_ids = trainloader.dataset.item_ids
-        test_ids = testloader.dataset.item_ids
-        val_ids = valloader.dataset.item_ids
+        ids = np.load(os.path.join(args.dataloader_path, 'item_ids.npz'))
+        train_ids, test_ids, val_ids = ids['train_ids'], ids['test_ids'], ids['val_ids']
+        train_ids = [(x[0], int(x[1])) for x in train_ids]
+        test_ids = [(x[0], int(x[1])) for x in test_ids]
+        val_ids = [(x[0], int(x[1])) for x in val_ids]
 
     except (Exception, FileNotFoundError) as e:
         print(e)
@@ -157,30 +155,27 @@ if __name__ == '__main__':
         # get train, val, test split, using crops if specific size
         train_ids, val_ids, test_ids = oads.get_train_val_test_split_indices(
             use_crops=True)
-        print(f"Loaded data with train_ids.shape: {len(train_ids)}")
-        print(f"Loaded data with val_ids.shape: {len(val_ids)}")
-        print(f"Loaded data with test_ids.shape: {len(test_ids)}")
 
+        ids = {"train_ids": train_ids, "test_ids": test_ids, "val_ids": val_ids}
+        np.savez_compressed(file=os.path.join(args.dataloader_path, 'item_ids.npz'), **ids)
+        
 
-        traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, use_jpeg=args.use_jpeg,
-                                        class_index_mapping=class_index_mapping, transform=transform, device=device)
-        valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True, use_jpeg=args.use_jpeg,
-                                      class_index_mapping=class_index_mapping, transform=transform, device=device)
-        testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True, use_jpeg=args.use_jpeg,
-                                       class_index_mapping=class_index_mapping, transform=transform, device=device)
+    print(f"Loaded data with train_ids.shape: {len(train_ids)}")
+    print(f"Loaded data with val_ids.shape: {len(val_ids)}")
+    print(f"Loaded data with test_ids.shape: {len(test_ids)}")
+    traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, use_jpeg=args.use_jpeg,
+                                    class_index_mapping=class_index_mapping, transform=transform, device=device)
+    valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True, use_jpeg=args.use_jpeg,
+                                    class_index_mapping=class_index_mapping, transform=transform, device=device)
+    testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True, use_jpeg=args.use_jpeg,
+                                    class_index_mapping=class_index_mapping, transform=transform, device=device)
 
-        trainloader = DataLoader(traindataset, collate_fn=collate_fn,
-                                 batch_size=batch_size, shuffle=True, num_workers=oads.n_processes)
-        valloader = DataLoader(valdataset, collate_fn=collate_fn,
-                               batch_size=batch_size, shuffle=True, num_workers=oads.n_processes)
-        testloader = DataLoader(testdataset, collate_fn=collate_fn,
-                                batch_size=batch_size, shuffle=True, num_workers=oads.n_processes)
-
-        os.makedirs(args.dataloader_path, exist_ok=True)
-        torch.save(trainloader, os.path.join(args.dataloader_path, 'trainloader.pth'))
-        torch.save(testloader, os.path.join(args.dataloader_path, 'testloader.pth'))
-        torch.save(valloader, os.path.join(args.dataloader_path, 'valloader.pth'))
-
+    trainloader = DataLoader(traindataset, collate_fn=collate_fn,
+                                batch_size=batch_size, shuffle=False, num_workers=oads.n_processes)
+    valloader = DataLoader(valdataset, collate_fn=collate_fn,
+                            batch_size=batch_size, shuffle=False, num_workers=oads.n_processes)
+    testloader = DataLoader(testdataset, collate_fn=collate_fn,
+                            batch_size=batch_size, shuffle=False, num_workers=oads.n_processes)
 
     print(f"Loaded data loaders")
 
@@ -245,6 +240,7 @@ if __name__ == '__main__':
     }
 
     if args.test:
+        
         if args.image_representation == 'COC':
             cmap_rg = LinearSegmentedColormap.from_list(
                 'rg', ["r", "w", "g"], N=256)
@@ -252,9 +248,10 @@ if __name__ == '__main__':
                 'by', ["b", "w", "y"], N=256)
 
             fig, ax = plt.subplots(3, 20, figsize=(30, 10))
-            for index, (image, label) in enumerate(trainloader):
-                if index < 20:
-                    for img, lbl in zip(image, label):
+            index = 0
+            for image, label in trainloader:
+                for img, lbl in zip(image, label):
+                    if index < 20:
                         coc = np.array(img)
                         ax[0][index].imshow(img[0], cmap='gray')
                         ax[0][index].set_title('I')
@@ -262,14 +259,16 @@ if __name__ == '__main__':
                         ax[1][index].set_title('RG')
                         ax[2][index].imshow(img[2], cmap=cmap_by)
                         ax[2][index].set_title('BY')
-                else:
-                    break
+                        index += 1
+                    else:
+                        break
 
         else:
             images = []
             titles = []
             for index, (image, label) in enumerate(trainloader):
-                if index < 20:
+                print(index)
+                if index < 2:
                     for img, lbl in zip(image, label):
                         titles.append(index_label_mapping[int(lbl)])
                         images.append(transforms.ToPILImage()(img))
