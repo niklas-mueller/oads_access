@@ -130,7 +130,7 @@ if __name__ == '__main__':
     print(f"Getting data loaders")
     transform_list = []
     # if args.use_jpeg:
-    #     transform_list.append(ToJpeg())
+    #     transform_list.append(ToJpeg()) # Removed this because we want to apply the jpeg compression on the full image instead of on the crops
     if convert_to_opponent_space:
         transform_list.append(ToOpponentChannel())
 
@@ -277,7 +277,7 @@ if __name__ == '__main__':
 
             fig = plot_images(images=images, titles=titles, axis_off=False)
         result_manager.save_pdf(
-            figs=[fig], filename='oads_example_train_stimuli.pdf')
+            figs=[fig], filename=f'oads_example_train_stimuli_{args.image_representation}_jpeg_{args.use_jpeg}.pdf')
 
         # current_time = 'Fri_Feb_17_14:13:44_2023'
         # # eval = evaluate(loader=testloader, model=model, criterion=criterion, verbose=True)

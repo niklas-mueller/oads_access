@@ -310,9 +310,8 @@ class OADS_Access():
 
             is_raw = label['is_raw']
             if use_jpeg:
-                print('here')
-                img = ToJpeg(resize=True)(img)
-                is_raw = True
+                img = ToJpeg(resize=False)(img)
+                # is_raw = False
 
             # This index needs to be normalized/adjust somehow
             obj = label['objects'][index]
@@ -778,6 +777,7 @@ class OADS_Access():
         height, width = img.shape[:2]
 
         old = (left, top, right, bottom, height, width, min_size, max_size)
+        # print(old, img.shape)
 
         # Check if crop would be too small
         if right-left < min_size[0]:
@@ -825,16 +825,18 @@ class OADS_Access():
         ########
 
         if is_opponent_space:
-            crop = []
-            for _x in img:
-                crop.append(np.array(Image.fromarray(_x).crop(
-                    (left, top, right, bottom)), dtype=np.float64))
-                # crop = Image.fromarray(_x).crop(
-                #     (old[0], old[1], old[2], old[3]))
-                # crop = crop.resize(max_size)
-                crop.append(np.array(crop, dtype=np.float64))
+            coc_crop = []
+            if is_raw:
+                max_size = tuple(np.multiply(max_size, 1/4).astype(int))
+            for _x in img.transpose((2,0,1)):
+                # crop.append(np.array(Image.fromarray(_x).crop(
+                #     (left, top, right, bottom)), dtype=np.float64))
+                crop = Image.fromarray(_x).crop(
+                    (old[0], old[1], old[2], old[3]))
+                re_crop = crop.resize(max_size)
+                coc_crop.append(np.array(re_crop, dtype=np.float64))
 
-            crop = np.array(crop, dtype=np.float64).transpose(
+            crop = np.array(coc_crop, dtype=np.float64).transpose(
                 (1, 2, 0))  # Make sure channels are last
         else:
             if type(img) == np.ndarray:
@@ -843,7 +845,8 @@ class OADS_Access():
                 print(f"Label: {object}")
             # crop = img.crop((left, top, right, bottom))
             crop = img.crop((old[0], old[1], old[2], old[3]))
-            max_size = tuple(np.multiply(max_size, 1/4).astype(int))
+            if is_raw:
+                max_size = tuple(np.multiply(max_size, 1/4).astype(int))
             crop = crop.resize(max_size)
         return crop
 
