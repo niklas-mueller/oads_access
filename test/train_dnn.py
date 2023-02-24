@@ -17,7 +17,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
-from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn, ToJpeg, ToOpponentChannel, get_confusion_matrix, get_result_figures
+from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn, ToJpeg, ToOpponentChannel, ToRGBCoC, get_confusion_matrix, get_result_figures
 import multiprocessing
 from PIL import Image
 from oads_access.utils import plot_images, imscatter_all
@@ -48,7 +48,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--model_type', help='Model to use for training. Can be "test" or "retina_cortex"', default='resnet50')
     parser.add_argument('--image_representation',
-                        help='Way images are represented. Can be `RGB`, `COC` (color opponent channels)', default='RGB')
+                        help='Way images are represented. Can be `RGB`, `COC` (color opponent channels), or `RGBCOC` (stacked RGB and COC)', default='RGB')
     parser.add_argument('--n_processes', help='Number of processes to use.',
                         default=multiprocessing.cpu_count()-1)
     parser.add_argument(
@@ -78,13 +78,20 @@ if __name__ == '__main__':
     # home = '../../data/oads/mini_oads/'
     size = (400, 400)
 
+    n_input_channels = 3
+
+    convert_to_rgbcoc = False
+    convert_to_opponent_space = False
     if args.image_representation == 'RGB':
         file_formats = ['.ARW']
-        convert_to_opponent_space = False
     elif args.image_representation == 'COC':
         file_formats = ['.ARW']
         # file_formats = ['.tiff']
         convert_to_opponent_space = True
+    elif args.image_representation == 'RGBCOC':
+        file_formats = ['.ARW']
+        n_input_channels = 6
+        convert_to_rgbcoc = True
 
     else:
         print(f"Image representation is not know. Exiting.")
@@ -111,7 +118,6 @@ if __name__ == '__main__':
     result_manager = ResultManager(root=args.output_dir)
 
 
-    n_input_channels = 3
     output_channels = len(oads.get_class_mapping())
     class_index_mapping = {}
     index_label_mapping = {}
@@ -133,6 +139,8 @@ if __name__ == '__main__':
     #     transform_list.append(ToJpeg()) # Removed this because we want to apply the jpeg compression on the full image instead of on the crops
     if convert_to_opponent_space:
         transform_list.append(ToOpponentChannel())
+    if convert_to_rgbcoc:
+        transform_list.append(ToRGBCoC())
 
     transform_list.append(transforms.ToTensor())
 
@@ -146,6 +154,11 @@ if __name__ == '__main__':
         train_ids = [(x[0], int(x[1])) for x in train_ids]
         test_ids = [(x[0], int(x[1])) for x in test_ids]
         val_ids = [(x[0], int(x[1])) for x in val_ids]
+
+        if args.test:
+            train_ids = train_ids[:10]
+            test_ids = test_ids[:10]
+            val_ids = val_ids[:10]
 
     except (Exception, FileNotFoundError) as e:
         print(e)
@@ -247,7 +260,7 @@ if __name__ == '__main__':
             cmap_by = LinearSegmentedColormap.from_list(
                 'by', ["b", "w", "y"], N=256)
 
-            fig, ax = plt.subplots(3, 20, figsize=(30, 10))
+            fig, ax = plt.subplots(3, 20, figsize=(30, 5))
             index = 0
             for image, label in trainloader:
                 for img, lbl in zip(image, label):
@@ -262,7 +275,36 @@ if __name__ == '__main__':
                         index += 1
                     else:
                         break
+            fig.tight_layout()
+        elif args.image_representation == 'RGBCOC':
+            cmap_rg = LinearSegmentedColormap.from_list(
+                'rg', ["r", "w", "g"], N=256)
+            cmap_by = LinearSegmentedColormap.from_list(
+                'by', ["b", "w", "y"], N=256)
 
+            fig, ax = plt.subplots(6, 20, figsize=(30, 10))
+            index = 0
+            for image, label in trainloader:
+                for img, lbl in zip(image, label):
+                    if index < 20:
+                        coc = np.array(img)
+                        ax[0][index].imshow(img[0], cmap='Reds')
+                        ax[0][index].set_title('R')
+                        ax[1][index].imshow(img[1], cmap='Greens')
+                        ax[1][index].set_title('G')
+                        ax[2][index].imshow(img[2], cmap='Blues')
+                        ax[2][index].set_title('B')
+                        ax[3][index].imshow(img[3], cmap='gray')
+                        ax[3][index].set_title('I')
+                        ax[4][index].imshow(img[4], cmap=cmap_rg)
+                        ax[4][index].set_title('RG')
+                        ax[5][index].imshow(img[5], cmap=cmap_by)
+                        ax[5][index].set_title('BY')
+                        index += 1
+                    else:
+                        break
+
+            fig.tight_layout()
         else:
             images = []
             titles = []

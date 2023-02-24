@@ -777,52 +777,51 @@ class OADS_Access():
         height, width = img.shape[:2]
 
         old = (left, top, right, bottom, height, width, min_size, max_size)
-        # print(old, img.shape)
 
-        # Check if crop would be too small
-        if right-left < min_size[0]:
-            mid_point = left + (right - left) / 2
-            left = mid_point - min_size[0] / 2
-            right = mid_point + min_size[0] / 2
-        if bottom-top < min_size[1]:
-            mid_point = top + (bottom - top) / 2
-            top = mid_point - min_size[1] / 2
-            bottom = mid_point + min_size[1] / 2
+        # # Check if crop would be too small
+        # if right-left < min_size[0]:
+        #     mid_point = left + (right - left) / 2
+        #     left = mid_point - min_size[0] / 2
+        #     right = mid_point + min_size[0] / 2
+        # if bottom-top < min_size[1]:
+        #     mid_point = top + (bottom - top) / 2
+        #     top = mid_point - min_size[1] / 2
+        #     bottom = mid_point + min_size[1] / 2
 
-        # Check if crop would be too big
-        if not max_size is None:
-            if right - left > max_size[0]:
-                mid_point = left + (right - left) / 2
-                left = mid_point - max_size[0] / 2
-                right = mid_point + max_size[0] / 2
-            if bottom - top > max_size[1]:
-                mid_point = top + (bottom - top) / 2
-                top = mid_point - max_size[1] / 2
-                bottom = mid_point + max_size[1] / 2
+        # # Check if crop would be too big
+        # if not max_size is None:
+        #     if right - left > max_size[0]:
+        #         mid_point = left + (right - left) / 2
+        #         left = mid_point - max_size[0] / 2
+        #         right = mid_point + max_size[0] / 2
+        #     if bottom - top > max_size[1]:
+        #         mid_point = top + (bottom - top) / 2
+        #         top = mid_point - max_size[1] / 2
+        #         bottom = mid_point + max_size[1] / 2
 
-        # make sure nothing is cropped outside the actual image
-        redo = True
-        while redo:
-            if left < 0:
-                redo = True
-                right -= left
-                left = 0
-            elif right > width:
-                redo = True
-                left -= (right - width)
-                right = width
-            elif top < 0:
-                redo = True
-                bottom -= top
-                top = 0
-            elif bottom > height:
-                redo = True
-                top -= (bottom - height)
-                bottom = height
-            else:
-                redo = False
+        # # make sure nothing is cropped outside the actual image
+        # redo = True
+        # while redo:
+        #     if left < 0:
+        #         redo = True
+        #         right -= left
+        #         left = 0
+        #     elif right > width:
+        #         redo = True
+        #         left -= (right - width)
+        #         right = width
+        #     elif top < 0:
+        #         redo = True
+        #         bottom -= top
+        #         top = 0
+        #     elif bottom > height:
+        #         redo = True
+        #         top -= (bottom - height)
+        #         bottom = height
+        #     else:
+        #         redo = False
 
-        ########
+        # ########
 
         if is_opponent_space:
             coc_crop = []
