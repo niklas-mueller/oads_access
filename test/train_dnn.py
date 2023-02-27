@@ -195,17 +195,20 @@ if __name__ == '__main__':
     # Initialize model
     if args.model_type == 'resnet18':
         model = resnet18()
+        model.conv1 = torch.nn.Conv2d(in_channels=n_input_channels, out_channels=model.conv1.out_channels, kernel_size=(7,7), stride=(2,2), padding=(3,3), bias=False)
         model.fc = torch.nn.Linear(
             in_features=512, out_features=output_channels, bias=True)
     elif args.model_type == 'resnet50':
         model = resnet50()
+        model.conv1 = torch.nn.Conv2d(in_channels=n_input_channels, out_channels=model.conv1.out_channels, kernel_size=(7,7), stride=(2,2), padding=(3,3), bias=False)
         model.fc = torch.nn.Linear(
             in_features=2048, out_features=output_channels, bias=True)
-    elif args.model_type == 'alexnet':
-        model = alexnet()
-        model.classifier[6] = torch.nn.Linear(4096, output_channels, bias=True)
+    # elif args.model_type == 'alexnet':
+    #     model = alexnet()
+    #     model.classifier[6] = torch.nn.Linear(4096, output_channels, bias=True)
     elif args.model_type == 'vgg16':
         model = vgg16()
+        model.features[0] = torch.nn.Conv2d(in_channels=n_input_channels, out_channels=64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
         model.classifier[-1] = torch.nn.Linear(4096,
                                                output_channels, bias=True)
 
