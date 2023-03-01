@@ -168,8 +168,9 @@ if __name__ == '__main__':
         # get train, val, test split, using crops if specific size
         train_ids, val_ids, test_ids = oads.get_train_val_test_split_indices(
             use_crops=True)
-
+        
         ids = {"train_ids": train_ids, "test_ids": test_ids, "val_ids": val_ids}
+        os.makedirs(args.dataloader_path, exist_ok=True)
         np.savez_compressed(file=os.path.join(args.dataloader_path, 'item_ids.npz'), **ids)
         
 
@@ -203,18 +204,22 @@ if __name__ == '__main__':
         model.conv1 = torch.nn.Conv2d(in_channels=n_input_channels, out_channels=model.conv1.out_channels, kernel_size=(7,7), stride=(2,2), padding=(3,3), bias=False)
         model.fc = torch.nn.Linear(
             in_features=2048, out_features=output_channels, bias=True)
-    # elif args.model_type == 'alexnet':
-    #     model = alexnet()
-    #     model.classifier[6] = torch.nn.Linear(4096, output_channels, bias=True)
+    elif args.model_type == 'alexnet':
+        print('AlesNet is not supported ATM.')
+        exit(1)
+        model = alexnet()
+        model.classifier[6] = torch.nn.Linear(4096, output_channels, bias=True)
     elif args.model_type == 'vgg16':
         model = vgg16()
         model.features[0] = torch.nn.Conv2d(in_channels=n_input_channels, out_channels=64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
         model.classifier[-1] = torch.nn.Linear(4096,
                                                output_channels, bias=True)
 
-    # elif args.model_type == 'retina_cortex':
-    #     model = RetinaCortexModel(n_retina_layers=2, n_retina_in_channels=n_input_channels, n_retina_out_channels=2, retina_width=32,
-    #                             input_shape=size, kernel_size=(9,9), n_vvs_layers=2, out_features=output_channels, vvs_width=32)
+    elif args.model_type == 'retina_cortex':
+        print('RetinaCortexModel is not supported at the moment')
+        exit(1)
+        # model = RetinaCortexModel(n_retina_layers=2, n_retina_in_channels=n_input_channels, n_retina_out_channels=2, retina_width=32,
+        #                         input_shape=size, kernel_size=(9,9), n_vvs_layers=2, out_features=output_channels, vvs_width=32)
 
     print(f"Create model {args.model_type}")
 

@@ -63,6 +63,7 @@ class OADS_Access():
         self.images_per_class = {}
         self.classes = []
         self.image_names = {}
+        self.label_id_to_image = {}
 
         for dataset_name in self.datasets:
 
@@ -119,6 +120,8 @@ class OADS_Access():
                                     self.images_per_class[obj['classTitle']].append(f"{file_id}_{index}")
                                 else:
                                     self.images_per_class[obj['classTitle']] = [f"{file_id}_{index}"]
+
+                                self.label_id_to_image[obj['id']] = file_id
 
                 # if len(tup['crop_file_paths']) == 0:
                 #     tup['number_of_annotations'] = len(tup['object_labels'])
