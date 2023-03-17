@@ -36,26 +36,26 @@ for i in dirARW:
             imagename = f+".jpg"
             imageio.imsave(pathJPG+'/'+imagename, rgb) # save in JPG folder
 
-### change filenames
-# do this after converting as hashing doesn't work with ARW files
-dirJPG = os.listdir(pathJPG)
+# ### change filenames
+# # do this after converting as hashing doesn't work with ARW files
+# dirJPG = os.listdir(pathJPG)
 
-jpgFiles = set() # create sets of photos same extensions
-arwFiles = set() 
+# jpgFiles = set() # create sets of photos same extensions
+# arwFiles = set() 
 
-for item in dirJPG:
-    f, e = os.path.splitext(item)
-    jpgFiles.add(f)
+# for item in dirJPG:
+#     f, e = os.path.splitext(item)
+#     jpgFiles.add(f)
 
-for item in dirARW:
-    f,e = os.path.splitext(item)
-    arwFiles.add(f) 
+# for item in dirARW:
+#     f,e = os.path.splitext(item)
+#     arwFiles.add(f) 
         
-for name in jpgFiles.intersection(arwFiles): # for common files
-    with Image.open(pathJPG+'/'+name+'.JPG') as im: # open then hash image
-        imHash = str(imagehash.dhash(im)) # use of difference hash because less chance of duplicate names
-    os.rename(os.path.join(pathJPG,name+'.JPG'),os.path.join(pathJPG,imHash+'.JPG')) # Rename jpg file
-    os.rename(os.path.join(pathARW,name+'.ARW'),os.path.join(pathARW,imHash+'.ARW')) # Rename json file
+# for name in jpgFiles.intersection(arwFiles): # for common files
+#     with Image.open(pathJPG+'/'+name+'.JPG') as im: # open then hash image
+#         imHash = str(imagehash.dhash(im)) # use of difference hash because less chance of duplicate names
+#     os.rename(os.path.join(pathJPG,name+'.JPG'),os.path.join(pathJPG,imHash+'.JPG')) # Rename jpg file
+#     os.rename(os.path.join(pathARW,name+'.ARW'),os.path.join(pathARW,imHash+'.ARW')) # Rename json file
 
 ### change size of JPG's
 for item in os.listdir(pathJPG):

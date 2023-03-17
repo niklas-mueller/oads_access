@@ -17,10 +17,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
-from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn, ToJpeg, ToOpponentChannel, ToRGBCoC, get_confusion_matrix, get_result_figures
+from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn, ToJpeg, ToOpponentChannel, ToRGBEdges, get_confusion_matrix, get_result_figures
 import multiprocessing
 from PIL import Image
-from oads_access.utils import plot_images, imscatter_all
+from oads_access.utils import plot_images, imscatter_all, loadmat
 
 if __name__ == '__main__':
 
@@ -51,6 +51,7 @@ if __name__ == '__main__':
                         help='Way images are represented. Can be `RGB`, `COC` (color opponent channels), or `RGBCOC` (stacked RGB and COC)', default='RGB')
     parser.add_argument('--n_processes', help='Number of processes to use.',
                         default=multiprocessing.cpu_count()-1)
+    parser.add_argument('--batch_size', help='Batch size for training.', default=256)
     parser.add_argument(
         '-use_jpeg', help='Whether to use JPEG Compression or not', action='store_true')
     parser.add_argument('-new_dataloader', help='Whether to use new dataloader or use the path in --dataloader_path to load existing ones. If new_dataloader is given, --dataloader_path will be use as target directory to store dataloaders', action='store_true')
@@ -80,7 +81,7 @@ if __name__ == '__main__':
 
     n_input_channels = 3
 
-    convert_to_rgbcoc = False
+    convert_to_rgbedges = False
     convert_to_opponent_space = False
     if args.image_representation == 'RGB':
         file_formats = ['.ARW']
@@ -88,10 +89,10 @@ if __name__ == '__main__':
         file_formats = ['.ARW']
         # file_formats = ['.tiff']
         convert_to_opponent_space = True
-    elif args.image_representation == 'RGBCOC':
+    elif args.image_representation == 'RGBEdges':
         file_formats = ['.ARW']
         n_input_channels = 6
-        convert_to_rgbcoc = True
+        convert_to_rgbedges = True
 
     else:
         print(f"Image representation is not know. Exiting.")
@@ -125,7 +126,7 @@ if __name__ == '__main__':
         class_index_mapping[key] = index
         index_label_mapping[index] = item
 
-    batch_size = 32
+    batch_size = int(args.batch_size) # 256
 
     # print(f"Getting dataset stats")
     # means, stds = oads.get_dataset_stats()
@@ -139,8 +140,11 @@ if __name__ == '__main__':
     #     transform_list.append(ToJpeg()) # Removed this because we want to apply the jpeg compression on the full image instead of on the crops
     if convert_to_opponent_space:
         transform_list.append(ToOpponentChannel())
-    if convert_to_rgbcoc:
-        transform_list.append(ToRGBCoC())
+    if convert_to_rgbedges:
+        threshold_lgn_path = f'{os.path.expanduser("~")}/projects/lgnpy/ThresholdLGN.mat'
+        default_config_path = f'{os.path.expanduser("~")}/projects/lgnpy/lgnpy/CEandSC/default_config.yml'
+        threshold_lgn = loadmat(threshold_lgn_path)['ThresholdLGN']
+        transform_list.append(ToRGBEdges(threshold_lgn=threshold_lgn, default_config_path=default_config_path))
 
     transform_list.append(transforms.ToTensor())
 
@@ -156,9 +160,9 @@ if __name__ == '__main__':
         val_ids = [(x[0], int(x[1])) for x in val_ids]
 
         if args.test:
-            train_ids = train_ids[:10]
-            test_ids = test_ids[:10]
-            val_ids = val_ids[:10]
+            train_ids = train_ids[:1000]
+            test_ids = test_ids[:1000]
+            val_ids = val_ids[:1000]
 
     except (Exception, FileNotFoundError) as e:
         print(e)
@@ -223,11 +227,18 @@ if __name__ == '__main__':
 
     print(f"Create model {args.model_type}")
 
+    results = {}
     if args.model_path is not None:
         print(f"Loading model state {args.model_path}")
         model.load_state_dict(torch.load(args.model_path))
 
-    # model = torch.nn.DataParallel(model)
+        res_path, ident = args.model_path.split('best_model_')
+        ident = ident.split('.pth')[0]
+        if os.path.exists(os.path.join(res_path, f'training_results_{ident}.yml')):
+            results = result_manager.load_result(filename=f'training_results_{ident}.yml', path=res_path)
+    
+
+    model = torch.nn.DataParallel(model)
     model = model.to(device)  # , dtype=torch.float32
 
     criterion = nn.CrossEntropyLoss()
@@ -284,7 +295,7 @@ if __name__ == '__main__':
                     else:
                         break
             fig.tight_layout()
-        elif args.image_representation == 'RGBCOC':
+        elif args.image_representation == 'RGBEdges':
             cmap_rg = LinearSegmentedColormap.from_list(
                 'rg', ["r", "w", "g"], N=256)
             cmap_by = LinearSegmentedColormap.from_list(
@@ -295,19 +306,22 @@ if __name__ == '__main__':
             for image, label in trainloader:
                 for img, lbl in zip(image, label):
                     if index < 20:
-                        coc = np.array(img)
-                        ax[0][index].imshow(img[0], cmap='Reds')
-                        ax[0][index].set_title('R')
-                        ax[1][index].imshow(img[1], cmap='Greens')
-                        ax[1][index].set_title('G')
-                        ax[2][index].imshow(img[2], cmap='Blues')
-                        ax[2][index].set_title('B')
-                        ax[3][index].imshow(img[3], cmap='gray')
-                        ax[3][index].set_title('I')
-                        ax[4][index].imshow(img[4], cmap=cmap_rg)
-                        ax[4][index].set_title('RG')
-                        ax[5][index].imshow(img[5], cmap=cmap_by)
-                        ax[5][index].set_title('BY')
+                        # coc = np.array(img)
+                        # ax[0][index].imshow(img[0], cmap='Reds')
+                        # ax[0][index].set_title('R')
+                        # ax[1][index].imshow(img[1], cmap='Greens')
+                        # ax[1][index].set_title('G')
+                        # ax[2][index].imshow(img[2], cmap='Blues')
+                        # ax[2][index].set_title('B')
+                        # ax[3][index].imshow(img[3], cmap='gray')
+                        # ax[3][index].set_title('I')
+                        # ax[4][index].imshow(img[4], cmap=cmap_rg)
+                        # ax[4][index].set_title('RG')
+                        # ax[5][index].imshow(img[5], cmap=cmap_by)
+                        # ax[5][index].set_title('BY')
+                        for img_part_index, (img_part, img_part_label) in enumerate(zip(np.array(img), ['R', 'G', 'B', 'Par1', 'Par2', 'Par3', 'Mag1', 'Mag2', 'Mag3'])):
+                            ax[img_part_index][index].imshow(img_part, cmap='gray')
+                            ax[img_part_index][index].set_title(img_part_label)
                         index += 1
                     else:
                         break

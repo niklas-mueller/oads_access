@@ -8,9 +8,9 @@ import tqdm
 is_indoor = True
 
 # oads = OADS_Access(basedir="/home/niklas/projects/data/oads")
-basedir = '/mnt/c/Users/nikla/OADS Missing Images from Camera/Upload_to_drive/ARW'
+basedir = '/mnt/c/Users/nikla/OneDrive/PhD/Projects/OADS Indoor Images (Hongye)/oads_arw/Camera'
 # oads = OADS_Access(basedir=basedir)
-tiff_dir =os.path.join(basedir, 'tiff')
+tiff_dir =os.path.join(basedir, 'tiff_30_30')
 
 os.makedirs(tiff_dir, exist_ok=True)
 images = os.listdir(os.path.join(basedir))
@@ -21,7 +21,7 @@ def to_tiff(image_name):
         # image, _ = oads.load_image(image_name=image_name)
         with rawpy.imread(os.path.join(basedir, image_name)) as raw:
             if is_indoor:
-                image = raw.postprocess(no_auto_bright=True, gamma=(10,10))
+                image = raw.postprocess(no_auto_bright=True, gamma=(30,30))
             else:
                 image = raw.postprocess()
     except KeyError:
