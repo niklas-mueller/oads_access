@@ -6,6 +6,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib import pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
+import tqdm
 # from model import visTensor, TestModel, evaluate
 from result_manager.result_manager import ResultManager
 from oads_access.oads_access import OADS_Access, OADSImageDataset, plot_image_in_color_spaces
@@ -132,6 +133,9 @@ if __name__ == '__main__':
     # means, stds = oads.get_dataset_stats()
     # if not means.shape == (3,):
     #     print(means.shape, stds.shape)
+    # OADS Crops (400,400) mean, std
+    mean = [0.3410, 0.3123, 0.2787]
+    std = [0.2362, 0.2252, 0.2162]
 
     # Get the custom dataset and dataloader
     print(f"Getting data loaders")
@@ -147,6 +151,7 @@ if __name__ == '__main__':
         transform_list.append(ToRGBEdges(threshold_lgn=threshold_lgn, default_config_path=default_config_path))
 
     transform_list.append(transforms.ToTensor())
+    transform_list.append(transforms.Normalize(mean, std))
 
     transform = transforms.Compose(transform_list)
     #     # transforms.Normalize(means.mean(axis=0), stds.mean(axis=0))   # TODO fix this
@@ -272,92 +277,115 @@ if __name__ == '__main__':
     }
 
     if args.test:
+
+        print('Getting mean and std')
+        means = []
+        stds = []
+        # Get dataset stats
+        for x, _ in tqdm.tqdm(trainloader):
+            x = x.to(device)
+
+            # print(x.shape, torch.mean(x, axis=(0,1)).shape)
+            means.append(x.mean(axis=(0,2,3)))
+            stds.append(x.std(axis=(0,2,3)))
+            # print(x.shape, torch.std(x, axis=(0,1)).shape)
+            # stds.append(torch.std(x, axis=(0,1)))
+            # for img in x:
+            #     means.append(torch.mean(img))
+            #     stds.append(torch.std(img))
+
+        mean = torch.vstack(tuple((means[i]) for i in range(len(means)))).mean(axis=0, dtype=torch.float32)
+        std = torch.vstack(tuple((stds[i]) for i in range(len(stds)))).mean(axis=0, dtype=torch.float32)
+
+        print(mean.shape, std.shape)
+        print(mean, std)
+
         
-        if args.image_representation == 'COC':
-            cmap_rg = LinearSegmentedColormap.from_list(
-                'rg', ["r", "w", "g"], N=256)
-            cmap_by = LinearSegmentedColormap.from_list(
-                'by', ["b", "w", "y"], N=256)
+        # if args.image_representation == 'COC':
+        #     cmap_rg = LinearSegmentedColormap.from_list(
+        #         'rg', ["r", "w", "g"], N=256)
+        #     cmap_by = LinearSegmentedColormap.from_list(
+        #         'by', ["b", "w", "y"], N=256)
 
-            fig, ax = plt.subplots(3, 20, figsize=(30, 5))
-            index = 0
-            for image, label in trainloader:
-                for img, lbl in zip(image, label):
-                    if index < 20:
-                        coc = np.array(img)
-                        ax[0][index].imshow(img[0], cmap='gray')
-                        ax[0][index].set_title('I')
-                        ax[1][index].imshow(img[1], cmap=cmap_rg)
-                        ax[1][index].set_title('RG')
-                        ax[2][index].imshow(img[2], cmap=cmap_by)
-                        ax[2][index].set_title('BY')
-                        index += 1
-                    else:
-                        break
-            fig.tight_layout()
-        elif args.image_representation == 'RGBEdges':
-            cmap_rg = LinearSegmentedColormap.from_list(
-                'rg', ["r", "w", "g"], N=256)
-            cmap_by = LinearSegmentedColormap.from_list(
-                'by', ["b", "w", "y"], N=256)
+        #     fig, ax = plt.subplots(3, 20, figsize=(30, 5))
+        #     index = 0
+        #     for image, label in trainloader:
+        #         for img, lbl in zip(image, label):
+        #             if index < 20:
+        #                 coc = np.array(img)
+        #                 ax[0][index].imshow(img[0], cmap='gray')
+        #                 ax[0][index].set_title('I')
+        #                 ax[1][index].imshow(img[1], cmap=cmap_rg)
+        #                 ax[1][index].set_title('RG')
+        #                 ax[2][index].imshow(img[2], cmap=cmap_by)
+        #                 ax[2][index].set_title('BY')
+        #                 index += 1
+        #             else:
+        #                 break
+        #     fig.tight_layout()
+            # elif args.image_representation == 'RGBEdges':
+            #     cmap_rg = LinearSegmentedColormap.from_list(
+            #         'rg', ["r", "w", "g"], N=256)
+            #     cmap_by = LinearSegmentedColormap.from_list(
+            #         'by', ["b", "w", "y"], N=256)
 
-            fig, ax = plt.subplots(6, 20, figsize=(30, 10))
-            index = 0
-            for image, label in trainloader:
-                for img, lbl in zip(image, label):
-                    if index < 20:
-                        # coc = np.array(img)
-                        # ax[0][index].imshow(img[0], cmap='Reds')
-                        # ax[0][index].set_title('R')
-                        # ax[1][index].imshow(img[1], cmap='Greens')
-                        # ax[1][index].set_title('G')
-                        # ax[2][index].imshow(img[2], cmap='Blues')
-                        # ax[2][index].set_title('B')
-                        # ax[3][index].imshow(img[3], cmap='gray')
-                        # ax[3][index].set_title('I')
-                        # ax[4][index].imshow(img[4], cmap=cmap_rg)
-                        # ax[4][index].set_title('RG')
-                        # ax[5][index].imshow(img[5], cmap=cmap_by)
-                        # ax[5][index].set_title('BY')
-                        for img_part_index, (img_part, img_part_label) in enumerate(zip(np.array(img), ['R', 'G', 'B', 'Par1', 'Par2', 'Par3', 'Mag1', 'Mag2', 'Mag3'])):
-                            ax[img_part_index][index].imshow(img_part, cmap='gray')
-                            ax[img_part_index][index].set_title(img_part_label)
-                        index += 1
-                    else:
-                        break
+            #     fig, ax = plt.subplots(6, 20, figsize=(30, 10))
+            #     index = 0
+            #     for image, label in trainloader:
+            #         for img, lbl in zip(image, label):
+            #             if index < 20:
+            #                 # coc = np.array(img)
+            #                 # ax[0][index].imshow(img[0], cmap='Reds')
+            #                 # ax[0][index].set_title('R')
+            #                 # ax[1][index].imshow(img[1], cmap='Greens')
+            #                 # ax[1][index].set_title('G')
+            #                 # ax[2][index].imshow(img[2], cmap='Blues')
+            #                 # ax[2][index].set_title('B')
+            #                 # ax[3][index].imshow(img[3], cmap='gray')
+            #                 # ax[3][index].set_title('I')
+            #                 # ax[4][index].imshow(img[4], cmap=cmap_rg)
+            #                 # ax[4][index].set_title('RG')
+            #                 # ax[5][index].imshow(img[5], cmap=cmap_by)
+            #                 # ax[5][index].set_title('BY')
+            #                 for img_part_index, (img_part, img_part_label) in enumerate(zip(np.array(img), ['R', 'G', 'B', 'Par1', 'Par2', 'Par3', 'Mag1', 'Mag2', 'Mag3'])):
+            #                     ax[img_part_index][index].imshow(img_part, cmap='gray')
+            #                     ax[img_part_index][index].set_title(img_part_label)
+            #                 index += 1
+            #             else:
+            #                 break
 
-            fig.tight_layout()
-        else:
-            images = []
-            titles = []
-            for index, (image, label) in enumerate(trainloader):
-                print(index)
-                if index < 2:
-                    for img, lbl in zip(image, label):
-                        titles.append(index_label_mapping[int(lbl)])
-                        images.append(transforms.ToPILImage()(img))
-                else:
-                    break
+            #     fig.tight_layout()
+        # else:
+        #     images = []
+        #     titles = []
+        #     for index, (image, label) in enumerate(trainloader):
+        #         print(index)
+        #         if index < 2:
+        #             for img, lbl in zip(image, label):
+        #                 titles.append(index_label_mapping[int(lbl)])
+        #                 images.append(transforms.ToPILImage()(img))
+        #         else:
+        #             break
 
-            fig = plot_images(images=images, titles=titles, axis_off=False)
-        result_manager.save_pdf(
-            figs=[fig], filename=f'oads_example_train_stimuli_{args.image_representation}_jpeg_{args.use_jpeg}.pdf')
+        #     fig = plot_images(images=images, titles=titles, axis_off=False)
+        #     result_manager.save_pdf(
+        #         figs=[fig], filename=f'oads_example_train_stimuli_{args.image_representation}_jpeg_{args.use_jpeg}.pdf')
 
-        # current_time = 'Fri_Feb_17_14:13:44_2023'
-        # # eval = evaluate(loader=testloader, model=model, criterion=criterion, verbose=True)
-        # # result_manager.save_result(eval, filename=f'test_results_{current_time}.yml')
-        # # print(oads.classes, len(oads.classes))
-        # # print(class_index_mapping, len(class_index_mapping))
-        # # print(index_label_mapping, len(index_label_mapping))
-        # # exit(1)
-        # confusion_matrix = result_manager.load_result(f'confusion_matrix_{current_time}.npz', allow_pickle=False)
-        # if confusion_matrix is None:
-        #     confusion_matrix = get_confusion_matrix(model=model, loader=testloader, n_classes=len(index_label_mapping), device=device)
-        #     result_manager.save_result(result={'confusion_matrix': confusion_matrix}, filename=f'confusion_matrix_{current_time}.npz')
+            # current_time = 'Fri_Feb_17_14:13:44_2023'
+            # # eval = evaluate(loader=testloader, model=model, criterion=criterion, verbose=True)
+            # # result_manager.save_result(eval, filename=f'test_results_{current_time}.yml')
+            # # print(oads.classes, len(oads.classes))
+            # # print(class_index_mapping, len(class_index_mapping))
+            # # print(index_label_mapping, len(index_label_mapping))
+            # # exit(1)
+            # confusion_matrix = result_manager.load_result(f'confusion_matrix_{current_time}.npz', allow_pickle=False)
+            # if confusion_matrix is None:
+            #     confusion_matrix = get_confusion_matrix(model=model, loader=testloader, n_classes=len(index_label_mapping), device=device)
+            #     result_manager.save_result(result={'confusion_matrix': confusion_matrix}, filename=f'confusion_matrix_{current_time}.npz')
 
-        # get_result_figures(results=None, model=model, classes=oads.classes, result_manager=result_manager, index_label_mapping=index_label_mapping, confusion_matrix=confusion_matrix, pdf_filename=f'test_visuals_{current_time}.pdf')
-        # if type(confusion_matrix) == np.NpzFile:
-        #     confusion_matrix.close()
+            # get_result_figures(results=None, model=model, classes=oads.classes, result_manager=result_manager, index_label_mapping=index_label_mapping, confusion_matrix=confusion_matrix, pdf_filename=f'test_visuals_{current_time}.pdf')
+            # if type(confusion_matrix) == np.NpzFile:
+            #     confusion_matrix.close()
     else:
         result_manager.save_result(
             result=info, filename=f'fitting_description_{c_time}.yaml')
