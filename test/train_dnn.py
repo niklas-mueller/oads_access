@@ -53,6 +53,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_processes', help='Number of processes to use.',
                         default=multiprocessing.cpu_count()-1)
     parser.add_argument('--batch_size', help='Batch size for training.', default=256)
+    parser.add_argument('--image_size', help='Batch size for training.', default=400)
     parser.add_argument(
         '-use_jpeg', help='Whether to use JPEG Compression or not', action='store_true')
     parser.add_argument('--jpeg_quality', help='Batch size for training.', default=90)
@@ -79,7 +80,7 @@ if __name__ == '__main__':
 
     # initialize data access
     # home = '../../data/oads/mini_oads/'
-    size = (400, 400)
+    size = (int(args.image_size), int(args.image_size))
 
     n_input_channels = 3
 
