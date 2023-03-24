@@ -34,7 +34,7 @@ class OADS_Access():
 
     def __init__(self, basedir: str, file_formats: list = None, use_jpg: bool = False, use_avg_crop_size: bool = True,
                  min_size_crops: tuple = (0, 0), max_size_crops: tuple = None, exclude_oversized_crops: bool = False,
-                 n_processes: int = 8, exclude_classes: list = []):
+                 n_processes: int = 8, exclude_classes: list = [], jpeg_p=0.5, jpeg_quality=90):
         self.basedir = basedir
         self.file_formats = file_formats
         self.min_size_crops = min_size_crops
@@ -46,6 +46,9 @@ class OADS_Access():
         self.n_processes = n_processes
         self.exclude_classes = exclude_classes
         self.use_jpg = use_jpg
+
+        self.jpeg_p = jpeg_p
+        self.jpeg_quality = jpeg_quality
 
         self.img_dir = os.path.join(self.basedir, 'oads_arw', 'ARW')
         self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', self.size_folder_name)
@@ -313,7 +316,7 @@ class OADS_Access():
 
             is_raw = label['is_raw']
             if use_jpeg:
-                img = ToJpeg(resize=False)(img)
+                img = ToJpeg(resize=False, p=self.jpeg_p, quality=self.jpeg_quality)(img)
                 # is_raw = False
 
             # This index needs to be normalized/adjust somehow

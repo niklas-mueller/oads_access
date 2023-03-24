@@ -55,6 +55,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', help='Batch size for training.', default=256)
     parser.add_argument(
         '-use_jpeg', help='Whether to use JPEG Compression or not', action='store_true')
+    parser.add_argument('--jpeg_quality', help='Batch size for training.', default=90)
     parser.add_argument('-new_dataloader', help='Whether to use new dataloader or use the path in --dataloader_path to load existing ones. If new_dataloader is given, --dataloader_path will be use as target directory to store dataloaders', action='store_true')
     parser.add_argument('--dataloader_path', help='Path to a directory where the dataloaders can be stored from',
                         default='/home/niklas/projects/oads_access/dataloader')
@@ -105,7 +106,7 @@ if __name__ == '__main__':
 
     home = args.input_dir
     oads = OADS_Access(home, file_formats=file_formats, use_avg_crop_size=True, n_processes=int(
-        args.n_processes), min_size_crops=size, max_size_crops=size, exclude_classes=exclude_classes)
+        args.n_processes), min_size_crops=size, max_size_crops=size, exclude_classes=exclude_classes, jpeg_quality=int(args.jpeg_quality))
 
     # Compute crops if necessary
     if args.force_recrop:
@@ -278,98 +279,98 @@ if __name__ == '__main__':
 
     if args.test:
 
-        print('Getting mean and std')
-        means = []
-        stds = []
-        # Get dataset stats
-        for x, _ in tqdm.tqdm(trainloader):
-            x = x.to(device)
+        # print('Getting mean and std')
+        # means = []
+        # stds = []
+        # # Get dataset stats
+        # for x, _ in tqdm.tqdm(trainloader):
+        #     x = x.to(device)
 
-            # print(x.shape, torch.mean(x, axis=(0,1)).shape)
-            means.append(x.mean(axis=(0,2,3)))
-            stds.append(x.std(axis=(0,2,3)))
-            # print(x.shape, torch.std(x, axis=(0,1)).shape)
-            # stds.append(torch.std(x, axis=(0,1)))
-            # for img in x:
-            #     means.append(torch.mean(img))
-            #     stds.append(torch.std(img))
+        #     # print(x.shape, torch.mean(x, axis=(0,1)).shape)
+        #     means.append(x.mean(axis=(0,2,3)))
+        #     stds.append(x.std(axis=(0,2,3)))
+        #     # print(x.shape, torch.std(x, axis=(0,1)).shape)
+        #     # stds.append(torch.std(x, axis=(0,1)))
+        #     # for img in x:
+        #     #     means.append(torch.mean(img))
+        #     #     stds.append(torch.std(img))
 
-        mean = torch.vstack(tuple((means[i]) for i in range(len(means)))).mean(axis=0, dtype=torch.float32)
-        std = torch.vstack(tuple((stds[i]) for i in range(len(stds)))).mean(axis=0, dtype=torch.float32)
+        # mean = torch.vstack(tuple((means[i]) for i in range(len(means)))).mean(axis=0, dtype=torch.float32)
+        # std = torch.vstack(tuple((stds[i]) for i in range(len(stds)))).mean(axis=0, dtype=torch.float32)
 
-        print(mean.shape, std.shape)
-        print(mean, std)
+        # print(mean.shape, std.shape)
+        # print(mean, std)
 
         
-        # if args.image_representation == 'COC':
-        #     cmap_rg = LinearSegmentedColormap.from_list(
-        #         'rg', ["r", "w", "g"], N=256)
-        #     cmap_by = LinearSegmentedColormap.from_list(
-        #         'by', ["b", "w", "y"], N=256)
+        if args.image_representation == 'COC':
+            cmap_rg = LinearSegmentedColormap.from_list(
+                'rg', ["r", "w", "g"], N=256)
+            cmap_by = LinearSegmentedColormap.from_list(
+                'by', ["b", "w", "y"], N=256)
 
-        #     fig, ax = plt.subplots(3, 20, figsize=(30, 5))
-        #     index = 0
-        #     for image, label in trainloader:
-        #         for img, lbl in zip(image, label):
-        #             if index < 20:
-        #                 coc = np.array(img)
-        #                 ax[0][index].imshow(img[0], cmap='gray')
-        #                 ax[0][index].set_title('I')
-        #                 ax[1][index].imshow(img[1], cmap=cmap_rg)
-        #                 ax[1][index].set_title('RG')
-        #                 ax[2][index].imshow(img[2], cmap=cmap_by)
-        #                 ax[2][index].set_title('BY')
-        #                 index += 1
-        #             else:
-        #                 break
-        #     fig.tight_layout()
-            # elif args.image_representation == 'RGBEdges':
-            #     cmap_rg = LinearSegmentedColormap.from_list(
-            #         'rg', ["r", "w", "g"], N=256)
-            #     cmap_by = LinearSegmentedColormap.from_list(
-            #         'by', ["b", "w", "y"], N=256)
+            fig, ax = plt.subplots(3, 20, figsize=(30, 5))
+            index = 0
+            for image, label in trainloader:
+                for img, lbl in zip(image, label):
+                    if index < 20:
+                        coc = np.array(img)
+                        ax[0][index].imshow(img[0], cmap='gray')
+                        ax[0][index].set_title('I')
+                        ax[1][index].imshow(img[1], cmap=cmap_rg)
+                        ax[1][index].set_title('RG')
+                        ax[2][index].imshow(img[2], cmap=cmap_by)
+                        ax[2][index].set_title('BY')
+                        index += 1
+                    else:
+                        break
+            fig.tight_layout()
+        elif args.image_representation == 'RGBEdges':
+            cmap_rg = LinearSegmentedColormap.from_list(
+                'rg', ["r", "w", "g"], N=256)
+            cmap_by = LinearSegmentedColormap.from_list(
+                'by', ["b", "w", "y"], N=256)
 
-            #     fig, ax = plt.subplots(6, 20, figsize=(30, 10))
-            #     index = 0
-            #     for image, label in trainloader:
-            #         for img, lbl in zip(image, label):
-            #             if index < 20:
-            #                 # coc = np.array(img)
-            #                 # ax[0][index].imshow(img[0], cmap='Reds')
-            #                 # ax[0][index].set_title('R')
-            #                 # ax[1][index].imshow(img[1], cmap='Greens')
-            #                 # ax[1][index].set_title('G')
-            #                 # ax[2][index].imshow(img[2], cmap='Blues')
-            #                 # ax[2][index].set_title('B')
-            #                 # ax[3][index].imshow(img[3], cmap='gray')
-            #                 # ax[3][index].set_title('I')
-            #                 # ax[4][index].imshow(img[4], cmap=cmap_rg)
-            #                 # ax[4][index].set_title('RG')
-            #                 # ax[5][index].imshow(img[5], cmap=cmap_by)
-            #                 # ax[5][index].set_title('BY')
-            #                 for img_part_index, (img_part, img_part_label) in enumerate(zip(np.array(img), ['R', 'G', 'B', 'Par1', 'Par2', 'Par3', 'Mag1', 'Mag2', 'Mag3'])):
-            #                     ax[img_part_index][index].imshow(img_part, cmap='gray')
-            #                     ax[img_part_index][index].set_title(img_part_label)
-            #                 index += 1
-            #             else:
-            #                 break
+            fig, ax = plt.subplots(6, 20, figsize=(30, 10))
+            index = 0
+            for image, label in trainloader:
+                for img, lbl in zip(image, label):
+                    if index < 20:
+                        # coc = np.array(img)
+                        # ax[0][index].imshow(img[0], cmap='Reds')
+                        # ax[0][index].set_title('R')
+                        # ax[1][index].imshow(img[1], cmap='Greens')
+                        # ax[1][index].set_title('G')
+                        # ax[2][index].imshow(img[2], cmap='Blues')
+                        # ax[2][index].set_title('B')
+                        # ax[3][index].imshow(img[3], cmap='gray')
+                        # ax[3][index].set_title('I')
+                        # ax[4][index].imshow(img[4], cmap=cmap_rg)
+                        # ax[4][index].set_title('RG')
+                        # ax[5][index].imshow(img[5], cmap=cmap_by)
+                        # ax[5][index].set_title('BY')
+                        for img_part_index, (img_part, img_part_label) in enumerate(zip(np.array(img), ['R', 'G', 'B', 'Par1', 'Par2', 'Par3', 'Mag1', 'Mag2', 'Mag3'])):
+                            ax[img_part_index][index].imshow(img_part, cmap='gray')
+                            ax[img_part_index][index].set_title(img_part_label)
+                        index += 1
+                    else:
+                        break
 
-            #     fig.tight_layout()
-        # else:
-        #     images = []
-        #     titles = []
-        #     for index, (image, label) in enumerate(trainloader):
-        #         print(index)
-        #         if index < 2:
-        #             for img, lbl in zip(image, label):
-        #                 titles.append(index_label_mapping[int(lbl)])
-        #                 images.append(transforms.ToPILImage()(img))
-        #         else:
-        #             break
+            fig.tight_layout()
+        else:
+            images = []
+            titles = []
+            for index, (image, label) in enumerate(trainloader):
+                print(index)
+                if index < 2:
+                    for img, lbl in zip(image, label):
+                        titles.append(index_label_mapping[int(lbl)])
+                        images.append(transforms.ToPILImage()(img))
+                else:
+                    break
 
-        #     fig = plot_images(images=images, titles=titles, axis_off=False)
-        #     result_manager.save_pdf(
-        #         figs=[fig], filename=f'oads_example_train_stimuli_{args.image_representation}_jpeg_{args.use_jpeg}.pdf')
+            fig = plot_images(images=images, titles=titles, axis_off=False)
+            result_manager.save_pdf(
+                figs=[fig], filename=f'oads_example_train_stimuli_{args.image_representation}_jpeg_{args.use_jpeg}.pdf')
 
             # current_time = 'Fri_Feb_17_14:13:44_2023'
             # # eval = evaluate(loader=testloader, model=model, criterion=criterion, verbose=True)
