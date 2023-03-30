@@ -1,21 +1,16 @@
-from fileinput import filename
 import multiprocessing
 import os
 import json
 from PIL import Image
-from matplotlib import test
 from pytorch_utils.pytorch_utils import ToJpeg
 import rawpy
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import numpy as np
-import io
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 from torch import nn as nn
-import torch
 import tqdm
-import random
 
 
 class OADS_Access():
@@ -31,34 +26,28 @@ class OADS_Access():
     ----------
     >>> oads = OADS_Access(basedir='../data/oads')
     """
+    FULL_SIZE = (5496, 3672)
 
-    def __init__(self, basedir: str, file_formats: list = None, use_jpg: bool = False, use_avg_crop_size: bool = True,
-                 min_size_crops: tuple = (0, 0), max_size_crops: tuple = None, exclude_oversized_crops: bool = False,
-                 n_processes: int = 8, exclude_classes: list = [], jpeg_p=0.5, jpeg_quality=90):
+    def __init__(self, basedir: str, file_formats: list = None, use_jpeg: bool = False,
+                 n_processes: int = 8, exclude_classes: list = [], exclude_datasets:list=[], jpeg_p=0.5, jpeg_quality=90):
         self.basedir = basedir
         self.file_formats = file_formats
-        self.min_size_crops = min_size_crops
-        self.max_size_crops = max_size_crops
-        self.size_folder_name = self.min_size_crops if self.min_size_crops == self.max_size_crops else f"{self.min_size_crops}_{self.max_size_crops}"
-        self.size_folder_name = str(self.size_folder_name).replace(' ', '')
-
-        self.exclude_oversized_crops = exclude_oversized_crops
         self.n_processes = n_processes
         self.exclude_classes = exclude_classes
-        self.use_jpg = use_jpg
+        self.exclude_datasets = exclude_datasets
+        self.use_jpeg = use_jpeg
+
 
         self.jpeg_p = jpeg_p
         self.jpeg_quality = jpeg_quality
 
         self.img_dir = os.path.join(self.basedir, 'oads_arw', 'ARW')
-        self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', self.size_folder_name)
+        self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'jpeg' if use_jpeg else 'tiff')
         os.makedirs(self.crops_dir, exist_ok=True)
         self.ann_dir = os.path.join(self.basedir, 'oads_annotations')
 
-        # self.check_has_crop_files()
-
         self.datasets = [x for x in os.listdir(
-            self.ann_dir) if os.path.isdir(os.path.join(self.ann_dir, x))]
+            self.ann_dir) if os.path.isdir(os.path.join(self.ann_dir, x)) and x not in self.exclude_datasets]
 
         self.images_per_dataset = {dataset_name: []
                                    for dataset_name in self.datasets}
@@ -67,6 +56,8 @@ class OADS_Access():
         self.classes = []
         self.image_names = {}
         self.label_id_to_image = {}
+        
+        self.missing_raw_images = {}
 
         for dataset_name in self.datasets:
 
@@ -77,7 +68,7 @@ class OADS_Access():
                 tup['annotation_file_name'] = annotation_file_name
                 tup['annotation_file_path'] = os.path.join(
                     self.ann_dir, dataset_name, 'ann', annotation_file_name)
-                if use_jpg:
+                if use_jpeg:
                     # Get JPG information
                     jpg_path = os.path.join(
                         self.ann_dir, dataset_name, 'img', annotation_file_name.replace('.json', ''))
@@ -86,6 +77,8 @@ class OADS_Access():
                         tup['jpg_file_name'] = annotation_file_name.replace(
                             '.json', '')
 
+                file_id = annotation_file_name.split('.')[0]
+
                 raw_path = os.path.join(self.img_dir, annotation_file_name.replace(
                     'jpg', 'ARW').replace('.json', ''))
                 if os.path.exists(raw_path):
@@ -93,16 +86,34 @@ class OADS_Access():
                         'jpg', 'ARW').replace('.json', '')
                     tup['raw_file_path'] = raw_path
                 else:
+                    # Get data of missing RAW image
+                    if os.path.exists(tup['annotation_file_path']):
+                        with open(tup['annotation_file_path'], 'r') as f:
+                            content = json.load(f)
+                    else:
+                        content = None
+                    self.missing_raw_images[file_id] = {
+                        'dataset': dataset_name,
+                        'person': []
+                    }
+                    if content is not None:
+                        for obj in content['objects']:
+                            self.missing_raw_images[file_id]['person'].append(obj['labelerLogin'])
                     continue
 
-                file_id = annotation_file_name.split('.')[0]
+                for type_folder_name in os.listdir(os.path.join(basedir, 'oads_arw')):
+                    if os.path.isdir(os.path.join(basedir, 'oads_arw', type_folder_name)) and type_folder_name not in ['ARW', 'crops']:
+                        type_filename = annotation_file_name.replace('jpg', type_folder_name).replace('.json', '')
+                        tup[f'{type_folder_name}_file_name'] = type_filename
+                        tup[f'{type_folder_name}_file_path'] = os.path.join(basedir, 'oads_arw', type_folder_name, type_filename)
+                
                 i = 0
-                tup['crop_file_type'] = '.tiff'
-                tup['crop_file_paths'] = []
+                tup['crop_file_type'] = '.jpeg' if self.use_jpeg else '.tiff'
+                tup['crop_file_paths'] = {}
                 while True:
-                    crop_path = os.path.join(self.crops_dir, f"{file_id}_{i}.tiff")
+                    crop_path = os.path.join(self.crops_dir, f"{file_id}_{i}{tup['crop_file_type']}")
                     if os.path.exists(crop_path):
-                        tup['crop_file_paths'].append(crop_path)
+                        tup['crop_file_paths'][i] = crop_path
                         i += 1
                     else:
                         break
@@ -137,17 +148,6 @@ class OADS_Access():
         self.classes = set(self.classes)
         return
 
-
-    def check_has_crop_files(self):
-        if os.path.exists(os.path.join(self.basedir, 'crops')):
-            self.has_crops_files = True
-            self.crop_files_names = {
-                class_name: [
-                    x for x in os.listdir(os.path.join(self.basedir, 'crops', class_name)) if not x.endswith('.json')
-                ] for class_name in os.listdir(os.path.join(self.basedir, 'crops')) if os.path.isdir(os.path.join(self.basedir, 'crops'))
-            }
-        else:
-            self.has_crops_files = False
 
     def get_meta_info(self):
         """get_meta_info
@@ -190,7 +190,7 @@ class OADS_Access():
         if 'object_labels' in self.image_names[image_name]:
             return self.image_names[image_name][index]
         else:
-            return self.get_annotation(image_name=image_name)['objects'][index]['classTitle']
+            return self.get_annotation(image_name=image_name, dataset_name=dataset_name)['objects'][index]['classTitle']
 
     def get_annotation(self, image_name: str,  dataset_name: str = None,  is_raw=False):
         """get_annotation
@@ -261,12 +261,24 @@ class OADS_Access():
 
     def load_image(self, image_name: str, dataset_name: str = None):
         info = self.image_names[image_name]
-        if 'raw_file_path' in info.keys():
-            filename = info['raw_file_path']
-        elif 'jpg_file_path' in info.keys():
-            filename = info['jpg_file_path']
+        if self.file_formats is not None:
+            fileformat: str
+            for fileformat in self.file_formats:
+                if fileformat in ['.ARW']:
+                    filename = info['raw_file_path']
+                    continue
+                fileformat = fileformat.replace('.', '')
+                if f'{fileformat}_file_path' in info.keys():
+                    filename = info[f'{fileformat}_file_path']
+                    break
+        
         else:
-            return None
+            if 'raw_file_path' in info.keys():
+                filename = info['raw_file_path']
+            elif 'jpg_file_path' in info.keys():
+                filename = info['jpg_file_path']
+            else:
+                return None
 
         fileformat = os.path.splitext(filename)[-1]
         if self.file_formats is not None and fileformat not in self.file_formats:
@@ -281,6 +293,8 @@ class OADS_Access():
 
         else:
             img = Image.open(filename)
+            if 'tiff' in fileformat and img.size == self.FULL_SIZE:
+                is_raw = True
 
         label = self.get_annotation(
             dataset_name=dataset_name, image_name=image_name, is_raw=is_raw)
@@ -298,38 +312,72 @@ class OADS_Access():
 
         return (crop, label)
 
-    def load_crop_from_image(self, image_name: str, index: int,  dataset_name: str = None,  is_opponent_space: bool = False, use_jpeg:bool=False):
-        paths = self.image_names[image_name]['crop_file_paths']
-        if index < len(paths) and os.path.exists(paths[index]):
-            crop_path = paths[index]
-            crop, obj = self.load_crop(
-                crop_path, image_name=image_name, index=index)
-        else:
-            tup = self.load_image(
-                dataset_name=dataset_name, image_name=image_name)
+    def make_crop_from_image(self, image_name: str, index: int, filename:str, dataset_name:str = None):
+        tup = self.load_image(
+            dataset_name=dataset_name, image_name=image_name)
 
-            if tup is None:
-                print(image_name)
-                return None
+        if tup is None:
+            print(f'tup is none: {image_name}')
+            return None
 
-            img, label = tup
+        img, label = tup
 
-            is_raw = label['is_raw']
-            if use_jpeg:
-                img = ToJpeg(resize=False, p=self.jpeg_p, quality=self.jpeg_quality)(img)
-                # is_raw = False
+        is_raw = label['is_raw']
+        if self.use_jpeg:
+            img = ToJpeg(resize=False, p=self.jpeg_p, quality=self.jpeg_quality)(img)
+            # is_raw = False
 
-            # This index needs to be normalized/adjust somehow
-            obj = label['objects'][index]
-            if self.exclude_oversized_crops:
-                width, height = self.get_annotation_size(
-                    obj, is_raw=is_raw)
-                if height > self.max_size_crops[0] or width > self.max_size_crops[1]:
-                    return None
-            crop = self.get_image_crop(
-                img=img, object=obj, is_raw=is_raw, is_opponent_space=is_opponent_space)
-
+        # This index needs to be normalized/adjust somehow
+        obj = label['objects'][index]
+        # if self.exclude_oversized_crops:
+        #     width, height = self.get_annotation_size(
+        #         obj, is_raw=is_raw)
+        #     if height > self.max_size_crops[0] or width > self.max_size_crops[1]:
+        #         return None
+        crop = self.get_image_crop(
+            img=img, object=obj, is_raw=is_raw) # , is_opponent_space=is_opponent_space
+        
+        # Update self
+        self.image_names[image_name]['crop_file_paths'][index] = filename
+        
         return crop, obj
+
+    def load_crop_from_image(self, image_name: str, index: int,  dataset_name: str = None, force_recompute:bool=False):
+        paths = self.image_names[image_name]['crop_file_paths']
+        if index in paths and os.path.exists(paths[index]) and not force_recompute:
+            # print(f'Using Preloaded Crop:\n{paths[index]}')
+            crop_path = paths[index]
+            tup = self.load_crop(
+                crop_path, image_name=image_name, index=index)
+            
+        else:
+            filename = self.make_image_crop_name(image_name=image_name, index=index)
+            tup = self.make_crop_from_image(image_name=image_name, index=index, dataset_name=dataset_name, filename=filename)
+            # tup = self.load_image(
+            #     dataset_name=dataset_name, image_name=image_name)
+
+            # if tup is None:
+            #     print(image_name)
+            #     return None
+
+            # img, label = tup
+
+            # is_raw = label['is_raw']
+            # if use_jpeg:
+            #     img = ToJpeg(resize=False, p=self.jpeg_p, quality=self.jpeg_quality)(img)
+            #     # is_raw = False
+
+            # # This index needs to be normalized/adjust somehow
+            # obj = label['objects'][index]
+            # if self.exclude_oversized_crops:
+            #     width, height = self.get_annotation_size(
+            #         obj, is_raw=is_raw)
+            #     if height > self.max_size_crops[0] or width > self.max_size_crops[1]:
+            #         return None
+            # crop = self.get_image_crop(
+            #     img=img, object=obj, is_raw=is_raw, is_opponent_space=is_opponent_space)
+
+        return tup
 
     def get_data_list(self, dataset_names=None, use_crops: bool = False, max_number_images: int = None):
         """get_data_list
@@ -461,11 +509,13 @@ class OADS_Access():
 
         return len(annotation['objects'])
 
-    def get_train_val_test_split_indices(self, use_crops: bool, val_size: float = 0.1, test_size: float = 0.1, remove_duplicates: bool = True):
+    def get_train_val_test_split_indices(self, use_crops: bool, val_size: float = 0.1, test_size: float = 0.1, remove_duplicates: bool = True, dataset_names:list = []):
         if use_crops:
             # Tuple of image_name+index for index counts the number of crops for this image
             image_ids = []
             for image_name, info in self.image_names.items():
+                if len(dataset_names) > 0 and info['dataset_name'] not in dataset_names:
+                    continue
                 # if 'number_of_annotations' in info:
                 #     number_of_annotations = info['number_of_annotations']
                 # else:
@@ -481,7 +531,7 @@ class OADS_Access():
                 #     if self.image_names[image_name]['object_labels'][i] not in self.exclude_classes:
                 #         image_ids.append((image_name, i))
                 for index, _ in self.image_names[image_name]['object_labels'].items():
-                    image_ids.append((image_name, index))
+                        image_ids.append((image_name, index))
 
         else:
             # image_ids = get_list(self.image_names.items())
@@ -497,23 +547,24 @@ class OADS_Access():
         return train_ids, val_ids, test_ids
 
     def _prepare_crops_dataset(self, args):
-        dataset_name, (convert_to_opponent_space, overwrite) = args
+        dataset_name, (overwrite) = args
         for image_name in self.images_per_dataset[dataset_name]:
-            tup = self.load_image(
-                dataset_name=dataset_name, image_name=image_name)
-            if tup is not None:
-                (img, label) = tup
-                if convert_to_opponent_space:
-                    img = rgb_to_opponent_space(np.array(img))
-                _ = self.make_and_save_crops_from_image(
-                    img=img, label=label, image_name=image_name, is_opponent_space=convert_to_opponent_space, save_files=True, overwrite=overwrite, return_crops=False)
+            # tup = self.load_image(
+            #     dataset_name=dataset_name, image_name=image_name)
+            # if tup is not None:
+            #     (img, label) = tup
+            #     if convert_to_opponent_space:
+            #         img = rgb_to_opponent_space(np.array(img))
+            #     _ = self.make_and_save_crops_from_image(
+            #         img=img, label=label, image_name=image_name, is_opponent_space=convert_to_opponent_space, save_files=True, overwrite=overwrite, return_crops=False)
+            _ = self.make_and_save_crops_from_image(image_name=image_name, overwrite=overwrite, save_files=True)
 
-    def prepare_crops(self, dataset_names: list = None, convert_to_opponent_space: bool = False, overwrite: bool = False):
+    def prepare_crops(self, dataset_names: list = None, overwrite: bool = False):
         if dataset_names is None:
             dataset_names = self.datasets
 
         args = zip(dataset_names, [
-                   (convert_to_opponent_space, overwrite) for _ in range(len(dataset_names))])
+                   (overwrite) for _ in range(len(dataset_names))])
 
         with multiprocessing.Pool(self.n_processes) as pool:
             print(f"Number of processes: {pool._processes}")
@@ -522,57 +573,53 @@ class OADS_Access():
 
         # self.check_has_crop_files()
 
-    # TODO this needs to be adjusted to the new layout
-    def get_crop_list(self, data_list: "list|np.ndarray" = None, convert_to_opponent_space: bool = False,
-                      max_number_images: int = None, save_files: bool = False, recompute_crops: bool = False):
+    def make_image_crop_name(self, image_name, index:int):
+        file_ending = f'.{self.crops_dir.split("/")[-1]}'
 
-        crop_list = []
-        if not recompute_crops and self.has_crops_files:
-            # with multiprocessing.Pool(self.n_processes) as pool:
-            #     results = list(tqdm.tqdm(pool.imap(self.load_crop_class, self.crop_files_names.items()), total=len(self.crop_files_names.items())))
-
-            # crop_list = [x for dataset in results for x in dataset]
-            pass
-
-        else:
-
-            if data_list is None:
-                crop_list = self.get_data_list(
-                    max_number_images=max_number_images, use_crops=True)
-            else:
-                for (img, label) in data_list:
-                    if convert_to_opponent_space:
-                        img = rgb_to_opponent_space(np.array(img))
-                    crops = self.make_and_save_crops_from_image(
-                        img=img, label=label, is_opponent_space=convert_to_opponent_space, save_files=save_files)
-                    crop_list.extend(crops)
-
-        return crop_list
-
-    def make_and_save_crops_from_image(self, img, label, image_name: str, is_opponent_space: bool = False, save_files: bool = False, overwrite: bool = False, return_crops: bool = True):
+        filename = os.path.join(
+            self.crops_dir, f"{image_name}_{index}{file_ending}")
+        
+        return filename
+    
+    def make_and_save_crops_from_image(self, image_name: str, save_files: bool = False, overwrite: bool = False, return_crops: bool = True):
         if return_crops:
             crops = []
         
-        fileending = '.tiff'
+        # Get label
+        label = self.get_annotation(image_name=image_name, is_raw=True)
+        
+        # Iterate over all annotations
         for index, obj in enumerate(label['objects']):
-            filename = os.path.join(
-                self.crops_dir, f"{image_name}_{index}{fileending}")
 
+            filename = self.make_image_crop_name(image_name=image_name, index=index)
+            
             if os.path.exists(filename) and not overwrite:
                 continue
-            if self.exclude_oversized_crops:
-                width, height = self.get_annotation_size(
-                    obj, is_raw=label['is_raw'])
-                if height > self.max_size_crops[0] or width > self.max_size_crops[1]:
-                    continue
-            crop = self.get_image_crop(
-                img=img, object=obj, is_raw=label['is_raw'], is_opponent_space=is_opponent_space)
+            
+            # Make crop for current annotation/crop
+            crop, obj = self.make_crop_from_image(image_name=image_name, index=index, filename=filename)
+
+            # self.image_names[image_name]['crop_file_paths'].append(filename)
+
+            # if self.exclude_oversized_crops:
+            #     width, height = self.get_annotation_size(
+            #         obj, is_raw=label['is_raw'])
+            #     if height > self.max_size_crops[0] or width > self.max_size_crops[1]:
+            #         continue
+            # crop = self.get_image_crop(
+            #     img=img, object=obj, is_raw=label['is_raw'], is_opponent_space=is_opponent_space)
+
+            # Return if wanted
             if return_crops:
                 crops.append((crop, obj))
 
+            # Save if wanted
             if save_files:
                 try:
+                    # Save image
                     crop.save(fp=filename)
+
+                    # Save annotation
                     with open(f"{filename}.json", 'w') as f:
                         json.dump(obj, fp=f)
                 except SystemError as e:
@@ -600,7 +647,7 @@ class OADS_Access():
 
         return np.array(means), np.array(stds)
 
-    def plot_image_size_distribution(self, use_crops: bool, data_list: list = None, file_formats: list = None, figsize: tuple = (10, 5)):
+    def plot_image_size_distribution(self, figsize: tuple = (10, 5)):
 
         # Make scatter plot of x and y sizes and each images as dot
         # train_data, val_data, test_data = self.get_train_val_test_split(
@@ -613,11 +660,7 @@ class OADS_Access():
             for _, (height, width) in images.items():
                 height_sizes.append(height)
                 width_sizes.append(width)
-        # for img, _ in np.concatenate((train_data, val_data, test_data)):
-        #     (height, width, c) = np.array(img).shape
 
-        #     height_sizes.append(height)
-        #     width_sizes.append(width)
         fig, ax = plt.subplots(1, 1, figsize=figsize)
         ax.scatter(height_sizes, width_sizes)
         print(len(height_sizes), len(width_sizes))
@@ -752,7 +795,7 @@ class OADS_Access():
             np.array(data_tuple[1]['points']['exterior'])[::, ::-1, :])
         return (img, label)
 
-    def get_image_crop(self, img: "np.ndarray|list|Image.Image", object: dict, is_raw: bool = False, is_opponent_space: bool = False):
+    def get_image_crop(self, img: "np.ndarray|list|Image.Image", object: dict, is_raw: bool = False):
         """get_image_crop
 
         Using the annotation box object, crop the original image to the given size.
@@ -777,22 +820,26 @@ class OADS_Access():
         ----------
         >>> crop = get_image_crop(img=image, object=obj, min_size=(50, 50)) 
         """
-        ((left, top), (right, bottom)), min_size, max_size = get_annotation_dimensions(
-            object, is_raw=is_raw, min_size=self.min_size_crops, max_size=self.max_size_crops)
+        ((left, top), (right, bottom)) = get_annotation_dimensions(
+            object, is_raw=is_raw)
 
-        height, width = img.shape[:2]
+        if type(img) is np.ndarray:
+            height, width = img.shape[:2]
+        else:
+            height, width = np.array(img).shape[:2]
 
-        old = (left, top, right, bottom, height, width, min_size, max_size)
+        old = (left, top, right, bottom, height, width)
+        min_size = (800, 800)
 
-        # # Check if crop would be too small
-        # if right-left < min_size[0]:
-        #     mid_point = left + (right - left) / 2
-        #     left = mid_point - min_size[0] / 2
-        #     right = mid_point + min_size[0] / 2
-        # if bottom-top < min_size[1]:
-        #     mid_point = top + (bottom - top) / 2
-        #     top = mid_point - min_size[1] / 2
-        #     bottom = mid_point + min_size[1] / 2
+        # Check if crop would be too small
+        if right-left < min_size[0]:
+            mid_point = left + (right - left) / 2
+            left = mid_point - min_size[0] / 2
+            right = mid_point + min_size[0] / 2
+        if bottom-top < min_size[1]:
+            mid_point = top + (bottom - top) / 2
+            top = mid_point - min_size[1] / 2
+            bottom = mid_point + min_size[1] / 2
 
         # # Check if crop would be too big
         # if not max_size is None:
@@ -805,57 +852,59 @@ class OADS_Access():
         #         top = mid_point - max_size[1] / 2
         #         bottom = mid_point + max_size[1] / 2
 
-        # # make sure nothing is cropped outside the actual image
-        # redo = True
-        # while redo:
-        #     if left < 0:
-        #         redo = True
-        #         right -= left
-        #         left = 0
-        #     elif right > width:
-        #         redo = True
-        #         left -= (right - width)
-        #         right = width
-        #     elif top < 0:
-        #         redo = True
-        #         bottom -= top
-        #         top = 0
-        #     elif bottom > height:
-        #         redo = True
-        #         top -= (bottom - height)
-        #         bottom = height
-        #     else:
-        #         redo = False
+        # make sure nothing is cropped outside the actual image
+        redo = True
+        while redo:
+            if left < 0:
+                redo = True
+                right -= left
+                left = 0
+            elif right > width:
+                redo = True
+                left -= (right - width)
+                right = width
+            elif top < 0:
+                redo = True
+                bottom -= top
+                top = 0
+            elif bottom > height:
+                redo = True
+                top -= (bottom - height)
+                bottom = height
+            else:
+                redo = False
 
-        # ########
+        ########
 
-        if is_opponent_space:
-            coc_crop = []
-            if is_raw:
-                max_size = tuple(np.multiply(max_size, 1/4).astype(int))
-            for _x in img.transpose((2,0,1)):
-                # crop.append(np.array(Image.fromarray(_x).crop(
-                #     (left, top, right, bottom)), dtype=np.float64))
-                crop = Image.fromarray(_x).crop(
-                    (old[0], old[1], old[2], old[3]))
-                re_crop = crop.resize(max_size)
-                coc_crop.append(np.array(re_crop, dtype=np.float64))
+        # if is_opponent_space:
+        #     coc_crop = []
+        #     if is_raw:
+        #         max_size = tuple(np.multiply(max_size, 1/4).astype(int))
+        #     for _x in img.transpose((2,0,1)):
+        #         # crop.append(np.array(Image.fromarray(_x).crop(
+        #         #     (left, top, right, bottom)), dtype=np.float64))
+        #         crop = Image.fromarray(_x).crop(
+        #             (old[0], old[1], old[2], old[3]))
+        #         re_crop = crop.resize(max_size)
+        #         coc_crop.append(np.array(re_crop, dtype=np.float64))
 
-            crop = np.array(coc_crop, dtype=np.float64).transpose(
-                (1, 2, 0))  # Make sure channels are last
-        else:
-            if type(img) == np.ndarray:
-                img = Image.fromarray(img)
-            if left == right or top == bottom:
-                print(f"Label: {object}")
-            # crop = img.crop((left, top, right, bottom))
-            crop = img.crop((old[0], old[1], old[2], old[3]))
-            if is_raw:
-                max_size = tuple(np.multiply(max_size, 1/4).astype(int))
-            crop = crop.resize(max_size)
+        #     crop = np.array(coc_crop, dtype=np.float64).transpose(
+        #         (1, 2, 0))  # Make sure channels are last
+        # else:
+
+        if type(img) == np.ndarray:
+            img = Image.fromarray(img)
+        if left == right or top == bottom:
+            print(f"Label: {object}")
+        crop = img.crop((left, top, right, bottom))
+        # crop = img.crop((old[0], old[1], old[2], old[3]))
+        # if is_raw:
+        #     max_size = tuple(np.multiply(max_size, 1/4).astype(int))
+        # crop = crop.resize(max_size)
+
         return crop
 
-    def plot_crops_from_data_tuple(self, data_tuple, min_size=(0, 0), figsize=(18, 30), max_size=None):
+    def plot_crops_from_data_tuple(self, data_tuple, figsize=(18, 30), axis_off:bool=True):
         """plot_crops_from_data_tuple
 
         For a given tuple of (image, label) (e.g., from get_data_list) plot all the crops corresponding to the annotated labels.
@@ -893,11 +942,12 @@ class OADS_Access():
                 plt.delaxes(axis)
             else:
                 obj = label['objects'][index]
-                crop = self.get_image_crop(img, obj, min_size=min_size,
-                                           max_size=max_size, is_raw=label['is_raw'])
+                crop = self.get_image_crop(img, obj, is_raw=label['is_raw'])
                 axis.imshow(crop)
                 axis.set_title(obj['classTitle'])
-                axis.axis('off')
+
+                if axis_off:
+                    axis.axis('off')
 
         fig.tight_layout()
 
@@ -906,27 +956,23 @@ class OADS_Access():
 
 def get_image_size(tup):
     img, _ = tup
-    (height, width, c) = np.array(img).shape
+    (height, width, channels) = np.array(img).shape
     return height, width
 
 
-def get_annotation_dimensions(obj: dict, is_raw, min_size: tuple = None, max_size: tuple = None):
+def get_annotation_dimensions(obj: dict, is_raw):
     ((left, top), (right, bottom)) = obj['points']['exterior']
     if is_raw:
         left = left * 4
         top = top * 4
         right = right * 4
         bottom = bottom * 4
-        if min_size is not None:
-            min_size = tuple(np.multiply(min_size, 4))
-        if max_size is not None:
-            max_size = tuple(np.multiply(max_size, 4))
 
-    return ((left, top), (right, bottom)), min_size, max_size
+    return ((left, top), (right, bottom))
 
 
-def add_label_box_to_axis(obj: dict, ax, is_raw:bool, color:str='r', add_title:bool=False):
-    ((left, top), (right, bottom)), _, _ = get_annotation_dimensions(
+def add_label_box_to_axis(obj: dict, ax, is_raw:bool, color:str='r', add_title:bool=False, fontsize='x-small'):
+    ((left, top), (right, bottom)) = get_annotation_dimensions(
         obj, is_raw=is_raw)
     rec = Rectangle(xy=(left, top), height=bottom -
                     top, width=right-left, fill=False, color=color)
@@ -934,9 +980,9 @@ def add_label_box_to_axis(obj: dict, ax, is_raw:bool, color:str='r', add_title:b
 
     if add_title:
         ax.annotate(text=obj['classTitle'], xy=(
-            left, top-10), fontsize='x-small')
+            left, top-10), fontsize=fontsize)
 
-def add_label_boxes_to_axis(label: dict, ax, color: str = 'r', add_title: bool = False):
+def add_label_boxes_to_axis(label: dict, ax, color: str = 'r', add_title: bool = False, fontsize='x-small'):
     """add_label_box_to_axis
 
     Given a label dict and a axis add a rectangular box with the annotation dimensions to the axis.
@@ -960,7 +1006,7 @@ def add_label_boxes_to_axis(label: dict, ax, color: str = 'r', add_title: bool =
         # img_height, img_width = label['size']['height'], label['size']['width']
         for obj in label['objects']:
             if obj['geometryType'] == 'rectangle':
-                add_label_box_to_axis(obj=obj, ax=ax, color=color, add_title=add_title, is_raw=label['is_raw'])
+                add_label_box_to_axis(obj=obj, ax=ax, color=color, add_title=add_title, is_raw=label['is_raw'], fontsize=fontsize)
 
 
 def rgb_to_opponent_space(img, normalize=False):
@@ -1050,14 +1096,13 @@ def plot_image_in_color_spaces(image: np.ndarray, figsize=(10, 5), cmap_rgb: str
 
 
 class OADSImageDataset(Dataset):
-    def __init__(self, oads_access: OADS_Access, use_crops: bool, item_ids: list, use_jpeg:bool=False,
+    def __init__(self, oads_access: OADS_Access, use_crops: bool, item_ids: list,
                  class_index_mapping: dict = None, transform=None, target_transform=None,
-                 device='cuda:0', target: str = 'label') -> None:
+                 device='cuda:0', target: str = 'label', force_recompute:bool=False) -> None:
         super().__init__()
 
         self.oads_access = oads_access
         self.use_crops = use_crops
-        self.use_jpeg = use_jpeg
         self.item_ids = item_ids
 
         self.transform = transform
@@ -1066,6 +1111,7 @@ class OADSImageDataset(Dataset):
         self.device = device
 
         self.target = target
+        self.force_recompute = force_recompute
 
     def __len__(self):
         return len(self.item_ids)
@@ -1074,7 +1120,7 @@ class OADSImageDataset(Dataset):
         if self.use_crops:
             image_name, index = self.item_ids[idx]
             tup = self.oads_access.load_crop_from_image(
-                image_name=image_name, index=index, use_jpeg=self.use_jpeg)
+                image_name=image_name, index=index, force_recompute=self.force_recompute)
         else:
             image_name = self.item_ids[idx]
             tup = self.oads_access.load_image(image_name=image_name)

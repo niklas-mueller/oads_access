@@ -30,12 +30,12 @@ if __name__ == '__main__':
     # Instantiate the parser
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--input_dir', help='Path to input directory.',
-                        default='/home/niklas/projects/data/oads')
-    parser.add_argument('--output_dir', help='Path to output directory.',
-                        default=f'/home/niklas/projects/oads_access/results/dnn/{c_time}')
-    parser.add_argument('--model_name', help='Model name to save the model under',
-                        default=f'model_{c_time}')
+    parser.add_argument(
+        '--input_dir', help='Path to input directory.', default='/home/niklas/projects/data/oads')
+    parser.add_argument(
+        '--output_dir', help='Path to output directory.', default=f'/home/niklas/projects/oads_access/results/dnn/{c_time}')
+    parser.add_argument(
+        '--model_name', help='Model name to save the model under', default=f'model_{c_time}')
     parser.add_argument(
         '--n_epochs', help='Number of epochs for training.', default=30)
     parser.add_argument(
@@ -48,19 +48,24 @@ if __name__ == '__main__':
         '--model_path', help='Path to model to continue training on.', default=None)
     parser.add_argument(
         '--model_type', help='Model to use for training. Can be "test" or "retina_cortex"', default='resnet50')
-    parser.add_argument('--image_representation',
-                        help='Way images are represented. Can be `RGB`, `COC` (color opponent channels), or `RGBCOC` (stacked RGB and COC)', default='RGB')
-    parser.add_argument('--n_processes', help='Number of processes to use.',
-                        default=multiprocessing.cpu_count()-1)
-    parser.add_argument('--batch_size', help='Batch size for training.', default=256)
-    parser.add_argument('--image_size', help='Batch size for training.', default=400)
+    parser.add_argument(
+        '--image_representation', help='Way images are represented. Can be `RGB`, `COC` (color opponent channels), or `RGBCOC` (stacked RGB and COC)', default='RGB')
+    parser.add_argument(
+        '--n_processes', help='Number of processes to use.', default=multiprocessing.cpu_count()-1)
+    parser.add_argument(
+        '--batch_size', help='Batch size for training.', default=256)
+    parser.add_argument(
+        '--image_size', help='Batch size for training.', default=400)
     parser.add_argument(
         '-use_jpeg', help='Whether to use JPEG Compression or not', action='store_true')
-    parser.add_argument('--jpeg_quality', help='Batch size for training.', default=90)
-    parser.add_argument('-new_dataloader', help='Whether to use new dataloader or use the path in --dataloader_path to load existing ones. If new_dataloader is given, --dataloader_path will be use as target directory to store dataloaders', action='store_true')
-    parser.add_argument('--dataloader_path', help='Path to a directory where the dataloaders can be stored from',
-                        default='/home/niklas/projects/oads_access/dataloader')
-    parser.add_argument('-test', help='Whether to test', action='store_true')
+    parser.add_argument(
+        '--jpeg_quality', help='Batch size for training.', default=90)
+    parser.add_argument(
+        '-new_dataloader', help='Whether to use new dataloader or use the path in --dataloader_path to load existing ones. If new_dataloader is given, --dataloader_path will be use as target directory to store dataloaders', action='store_true')
+    parser.add_argument(
+        '--dataloader_path', help='Path to a directory where the dataloaders can be stored from', default='/home/niklas/projects/oads_access/dataloader')
+    parser.add_argument(
+        '-test', help='Whether to test', action='store_true')
 
     args = parser.parse_args()
 
@@ -80,7 +85,7 @@ if __name__ == '__main__':
 
     # initialize data access
     # home = '../../data/oads/mini_oads/'
-    size = (int(args.image_size), int(args.image_size))
+    size = int(args.image_size)
 
     n_input_channels = 3
 
@@ -106,15 +111,13 @@ if __name__ == '__main__':
     exclude_classes = ['MASK', "Xtra Class 1", 'Xtra Class 2']
 
     home = args.input_dir
-    oads = OADS_Access(home, file_formats=file_formats, use_avg_crop_size=True, n_processes=int(
-        args.n_processes), min_size_crops=size, max_size_crops=size, exclude_classes=exclude_classes, jpeg_quality=int(args.jpeg_quality))
+    oads = OADS_Access(home, file_formats=file_formats, use_jpeg=bool(args.use_jpeg), n_processes=int(
+        args.n_processes), exclude_classes=exclude_classes, jpeg_quality=int(args.jpeg_quality))
 
     # Compute crops if necessary
     if args.force_recrop:
         print(f"Recomputing crops.")
         oads.file_formats = ['.ARW']
-        oads.min_size_crops = size
-        oads.max_size_crops = size
         oads.prepare_crops(
             convert_to_opponent_space=convert_to_opponent_space, overwrite=True)
         oads.file_formats = file_formats
@@ -131,10 +134,6 @@ if __name__ == '__main__':
 
     batch_size = int(args.batch_size) # 256
 
-    # print(f"Getting dataset stats")
-    # means, stds = oads.get_dataset_stats()
-    # if not means.shape == (3,):
-    #     print(means.shape, stds.shape)
     # OADS Crops (400,400) mean, std
     mean = [0.3410, 0.3123, 0.2787]
     std = [0.2362, 0.2252, 0.2162]
@@ -142,10 +141,13 @@ if __name__ == '__main__':
     # Get the custom dataset and dataloader
     print(f"Getting data loaders")
     transform_list = []
-    # if args.use_jpeg:
-    #     transform_list.append(ToJpeg()) # Removed this because we want to apply the jpeg compression on the full image instead of on the crops
+    transform_list.append(transforms.Resize(size))
+
+    # Apply color opponnent channel representation
     if convert_to_opponent_space:
         transform_list.append(ToOpponentChannel())
+
+    # Compute edge map and use as input instead
     if convert_to_rgbedges:
         threshold_lgn_path = f'{os.path.expanduser("~")}/projects/lgnpy/ThresholdLGN.mat'
         default_config_path = f'{os.path.expanduser("~")}/projects/lgnpy/lgnpy/CEandSC/default_config.yml'
@@ -156,7 +158,6 @@ if __name__ == '__main__':
     transform_list.append(transforms.Normalize(mean, std))
 
     transform = transforms.Compose(transform_list)
-    #     # transforms.Normalize(means.mean(axis=0), stds.mean(axis=0))   # TODO fix this
 
     try:
         new_dataloader = False
@@ -177,8 +178,7 @@ if __name__ == '__main__':
 
     if args.new_dataloader or new_dataloader:
         # get train, val, test split, using crops if specific size
-        train_ids, val_ids, test_ids = oads.get_train_val_test_split_indices(
-            use_crops=True)
+        train_ids, val_ids, test_ids = oads.get_train_val_test_split_indices(use_crops=True)
         
         ids = {"train_ids": train_ids, "test_ids": test_ids, "val_ids": val_ids}
         os.makedirs(args.dataloader_path, exist_ok=True)
@@ -188,15 +188,18 @@ if __name__ == '__main__':
     print(f"Loaded data with train_ids.shape: {len(train_ids)}")
     print(f"Loaded data with val_ids.shape: {len(val_ids)}")
     print(f"Loaded data with test_ids.shape: {len(test_ids)}")
-    traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, use_jpeg=args.use_jpeg,
+
+    # Created custom OADS datasets
+    traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True,
                                     class_index_mapping=class_index_mapping, transform=transform, device=device)
-    valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True, use_jpeg=args.use_jpeg,
+    valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True,
                                     class_index_mapping=class_index_mapping, transform=transform, device=device)
-    testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True, use_jpeg=args.use_jpeg,
+    testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True,
                                     class_index_mapping=class_index_mapping, transform=transform, device=device)
 
+    # Create loaders - shuffle training set, but not validation or test set
     trainloader = DataLoader(traindataset, collate_fn=collate_fn,
-                                batch_size=batch_size, shuffle=False, num_workers=oads.n_processes)
+                                batch_size=batch_size, shuffle=True, num_workers=oads.n_processes)
     valloader = DataLoader(valdataset, collate_fn=collate_fn,
                             batch_size=batch_size, shuffle=False, num_workers=oads.n_processes)
     testloader = DataLoader(testdataset, collate_fn=collate_fn,
@@ -232,24 +235,42 @@ if __name__ == '__main__':
         # model = RetinaCortexModel(n_retina_layers=2, n_retina_in_channels=n_input_channels, n_retina_out_channels=2, retina_width=32,
         #                         input_shape=size, kernel_size=(9,9), n_vvs_layers=2, out_features=output_channels, vvs_width=32)
 
-    print(f"Create model {args.model_type}")
+    print(f"Created model {args.model_type}")
 
     results = {}
+    n_epochs = int(args.n_epochs)
     if args.model_path is not None:
         print(f"Loading model state {args.model_path}")
-        model.load_state_dict(torch.load(args.model_path))
+        try:
+            model.load_state_dict(torch.load(args.model_path))
+        except:
+            model = torch.nn.DataParallel(model)
+            model.load_state_dict(torch.load(args.model_path))
 
-        res_path, ident = args.model_path.split('best_model_')
+        if 'best_model_' in args.model_path:
+            res_path, ident = args.model_path.split('best_model_')
+        elif 'final_model_' in args.model_path:
+            res_path, ident = args.model_path.split('final_model_')
+        else:
+            res_path, ident = args.model_path.split('model_')
+
         ident = ident.split('.pth')[0]
         if os.path.exists(os.path.join(res_path, f'training_results_{ident}.yml')):
             results = result_manager.load_result(filename=f'training_results_{ident}.yml', path=res_path)
+            
+            pre_epochs = 0
+            pre_epochs = max([int(x.split('epoch-')[-1]) for x in results.keys() if 'epoch-' in x])
+            n_epochs = [x for x in range(pre_epochs+1, pre_epochs+1+n_epochs)]
     
-
-    model = torch.nn.DataParallel(model)
+    # Use DataParallel to make use of multiple GPUs if available
+    if type(model) is not torch.nn.DataParallel:
+        model = torch.nn.DataParallel(model)
     model = model.to(device)  # , dtype=torch.float32
 
+    # Loss Function
     criterion = nn.CrossEntropyLoss()
 
+    # Optimizer
     if args.optimizer == 'sgd':
         optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
     elif args.optimizer == 'adam':
@@ -257,13 +278,14 @@ if __name__ == '__main__':
     elif args.optimizer == 'rmsprop':
         optimizer = optim.RMSprop(model.parameters(), lr=0.001, momentum=0.9)
 
+    # Learning Rate Scheduler
     plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, 'min', patience=5)
 
     info = {
-        'training_indices': train_ids,
-        'testing_indices': test_ids,
-        'validation_indices': val_ids,
+        # 'training_indices': train_ids,
+        # 'testing_indices': test_ids,
+        # 'validation_indices': val_ids,
         'optimizer': str(optimizer),
         'scheduler': str(plateau_scheduler),
         'model': str(model),
@@ -278,7 +300,9 @@ if __name__ == '__main__':
         'output_dir': args.output_dir
     }
 
+
     if args.test:
+        print('Starting TEST')
 
         # print('Getting mean and std')
         # means = []
@@ -370,8 +394,8 @@ if __name__ == '__main__':
                     break
 
             fig = plot_images(images=images, titles=titles, axis_off=False)
-            result_manager.save_pdf(
-                figs=[fig], filename=f'oads_example_train_stimuli_{args.image_representation}_jpeg_{args.use_jpeg}.pdf')
+            # result_manager.save_pdf(
+            #     figs=[fig], filename=f'oads_example_train_stimuli_{args.image_representation}_jpeg_{args.use_jpeg}.pdf')
 
             # current_time = 'Fri_Feb_17_14:13:44_2023'
             # # eval = evaluate(loader=testloader, model=model, criterion=criterion, verbose=True)
@@ -392,6 +416,6 @@ if __name__ == '__main__':
         result_manager.save_result(
             result=info, filename=f'fitting_description_{c_time}.yaml')
 
-        train(model=model, trainloader=trainloader, valloader=valloader, device=device,
-              loss_fn=criterion, optimizer=optimizer, n_epochs=int(args.n_epochs), result_manager=result_manager,
+        train(model=model, trainloader=trainloader, valloader=valloader, device=device, results=results,
+              loss_fn=criterion, optimizer=optimizer, n_epochs=n_epochs, result_manager=result_manager,
               testloader=testloader, plateau_lr_scheduler=plateau_scheduler, current_time=c_time)
