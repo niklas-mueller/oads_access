@@ -118,8 +118,7 @@ if __name__ == '__main__':
     if args.force_recrop:
         print(f"Recomputing crops.")
         oads.file_formats = ['.ARW']
-        oads.prepare_crops(
-            convert_to_opponent_space=convert_to_opponent_space, overwrite=True)
+        oads.prepare_crops(overwrite=True)
         oads.file_formats = file_formats
 
     result_manager = ResultManager(root=args.output_dir)
