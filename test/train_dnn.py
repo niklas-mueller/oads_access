@@ -65,6 +65,8 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dataloader_path', help='Path to a directory where the dataloaders can be stored from', default='/home/niklas/projects/oads_access/dataloader')
     parser.add_argument(
+        '-preload_all', help='Whether to preloader all images into memory before. Will require around 260GB of RAM but will boost performance a lot.', action='store_true')
+    parser.add_argument(
         '-test', help='Whether to test', action='store_true')
 
     args = parser.parse_args()
@@ -85,7 +87,7 @@ if __name__ == '__main__':
 
     # initialize data access
     # home = '../../data/oads/mini_oads/'
-    size = int(args.image_size)
+    size = (int(args.image_size), int(args.image_size))
 
     n_input_channels = 3
 
@@ -189,11 +191,11 @@ if __name__ == '__main__':
     print(f"Loaded data with test_ids.shape: {len(test_ids)}")
 
     # Created custom OADS datasets
-    traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True,
+    traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, preload_all=bool(args.preload_all),
                                     class_index_mapping=class_index_mapping, transform=transform, device=device)
-    valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True,
+    valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True, preload_all=bool(args.preload_all),
                                     class_index_mapping=class_index_mapping, transform=transform, device=device)
-    testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True,
+    testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True, preload_all=bool(args.preload_all),
                                     class_index_mapping=class_index_mapping, transform=transform, device=device)
 
     # Create loaders - shuffle training set, but not validation or test set
@@ -302,6 +304,15 @@ if __name__ == '__main__':
 
     if args.test:
         print('Starting TEST')
+        print(f'Preloaded all crops:')
+
+        start = time.time()
+        for epoch in range(10):
+            for item in trainloader:
+                pass
+        end = time.time()
+        print(end-start)
+        
 
         # print('Getting mean and std')
         # means = []
@@ -326,73 +337,74 @@ if __name__ == '__main__':
         # print(mean, std)
 
         
-        if args.image_representation == 'COC':
-            cmap_rg = LinearSegmentedColormap.from_list(
-                'rg', ["r", "w", "g"], N=256)
-            cmap_by = LinearSegmentedColormap.from_list(
-                'by', ["b", "w", "y"], N=256)
+        # if args.image_representation == 'COC':
+        #     cmap_rg = LinearSegmentedColormap.from_list(
+        #         'rg', ["r", "w", "g"], N=256)
+        #     cmap_by = LinearSegmentedColormap.from_list(
+        #         'by', ["b", "w", "y"], N=256)
 
-            fig, ax = plt.subplots(3, 20, figsize=(30, 5))
-            index = 0
-            for image, label in trainloader:
-                for img, lbl in zip(image, label):
-                    if index < 20:
-                        coc = np.array(img)
-                        ax[0][index].imshow(img[0], cmap='gray')
-                        ax[0][index].set_title('I')
-                        ax[1][index].imshow(img[1], cmap=cmap_rg)
-                        ax[1][index].set_title('RG')
-                        ax[2][index].imshow(img[2], cmap=cmap_by)
-                        ax[2][index].set_title('BY')
-                        index += 1
-                    else:
-                        break
-            fig.tight_layout()
-        elif args.image_representation == 'RGBEdges':
-            cmap_rg = LinearSegmentedColormap.from_list(
-                'rg', ["r", "w", "g"], N=256)
-            cmap_by = LinearSegmentedColormap.from_list(
-                'by', ["b", "w", "y"], N=256)
+        #     fig, ax = plt.subplots(3, 20, figsize=(30, 5))
+        #     index = 0
+        #     for image, label in trainloader:
+        #         for img, lbl in zip(image, label):
+        #             if index < 20:
+        #                 coc = np.array(img)
+        #                 ax[0][index].imshow(img[0], cmap='gray')
+        #                 ax[0][index].set_title('I')
+        #                 ax[1][index].imshow(img[1], cmap=cmap_rg)
+        #                 ax[1][index].set_title('RG')
+        #                 ax[2][index].imshow(img[2], cmap=cmap_by)
+        #                 ax[2][index].set_title('BY')
+        #                 index += 1
+        #             else:
+        #                 break
+        #     fig.tight_layout()
+        # elif args.image_representation == 'RGBEdges':
+        #     cmap_rg = LinearSegmentedColormap.from_list(
+        #         'rg', ["r", "w", "g"], N=256)
+        #     cmap_by = LinearSegmentedColormap.from_list(
+        #         'by', ["b", "w", "y"], N=256)
 
-            fig, ax = plt.subplots(6, 20, figsize=(30, 10))
-            index = 0
-            for image, label in trainloader:
-                for img, lbl in zip(image, label):
-                    if index < 20:
-                        # coc = np.array(img)
-                        # ax[0][index].imshow(img[0], cmap='Reds')
-                        # ax[0][index].set_title('R')
-                        # ax[1][index].imshow(img[1], cmap='Greens')
-                        # ax[1][index].set_title('G')
-                        # ax[2][index].imshow(img[2], cmap='Blues')
-                        # ax[2][index].set_title('B')
-                        # ax[3][index].imshow(img[3], cmap='gray')
-                        # ax[3][index].set_title('I')
-                        # ax[4][index].imshow(img[4], cmap=cmap_rg)
-                        # ax[4][index].set_title('RG')
-                        # ax[5][index].imshow(img[5], cmap=cmap_by)
-                        # ax[5][index].set_title('BY')
-                        for img_part_index, (img_part, img_part_label) in enumerate(zip(np.array(img), ['R', 'G', 'B', 'Par1', 'Par2', 'Par3', 'Mag1', 'Mag2', 'Mag3'])):
-                            ax[img_part_index][index].imshow(img_part, cmap='gray')
-                            ax[img_part_index][index].set_title(img_part_label)
-                        index += 1
-                    else:
-                        break
+        #     fig, ax = plt.subplots(6, 20, figsize=(30, 10))
+        #     index = 0
+        #     for image, label in trainloader:
+        #         for img, lbl in zip(image, label):
+        #             if index < 20:
+        #                 # coc = np.array(img)
+        #                 # ax[0][index].imshow(img[0], cmap='Reds')
+        #                 # ax[0][index].set_title('R')
+        #                 # ax[1][index].imshow(img[1], cmap='Greens')
+        #                 # ax[1][index].set_title('G')
+        #                 # ax[2][index].imshow(img[2], cmap='Blues')
+        #                 # ax[2][index].set_title('B')
+        #                 # ax[3][index].imshow(img[3], cmap='gray')
+        #                 # ax[3][index].set_title('I')
+        #                 # ax[4][index].imshow(img[4], cmap=cmap_rg)
+        #                 # ax[4][index].set_title('RG')
+        #                 # ax[5][index].imshow(img[5], cmap=cmap_by)
+        #                 # ax[5][index].set_title('BY')
+        #                 for img_part_index, (img_part, img_part_label) in enumerate(zip(np.array(img), ['R', 'G', 'B', 'Par1', 'Par2', 'Par3', 'Mag1', 'Mag2', 'Mag3'])):
+        #                     ax[img_part_index][index].imshow(img_part, cmap='gray')
+        #                     ax[img_part_index][index].set_title(img_part_label)
+        #                 index += 1
+        #             else:
+        #                 break
 
-            fig.tight_layout()
-        else:
-            images = []
-            titles = []
-            for index, (image, label) in enumerate(trainloader):
-                print(index)
-                if index < 2:
-                    for img, lbl in zip(image, label):
-                        titles.append(index_label_mapping[int(lbl)])
-                        images.append(transforms.ToPILImage()(img))
-                else:
-                    break
+        #     fig.tight_layout()
+        # else:
+        #     images = []
+        #     titles = []
+        #     for index, (image, label) in enumerate(trainloader):
+        #         print(index)
+        #         if index < 2:
+        #             for img, lbl in zip(image, label):
+        #                 titles.append(index_label_mapping[int(lbl)])
+        #                 images.append(transforms.ToPILImage()(img))
+        #         else:
+        #             break
 
-            fig = plot_images(images=images, titles=titles, axis_off=False)
+        #     fig = plot_images(images=images, titles=titles, axis_off=False)
+        ###############################
             # result_manager.save_pdf(
             #     figs=[fig], filename=f'oads_example_train_stimuli_{args.image_representation}_jpeg_{args.use_jpeg}.pdf')
 

@@ -1098,7 +1098,7 @@ def plot_image_in_color_spaces(image: np.ndarray, figsize=(10, 5), cmap_rgb: str
 class OADSImageDataset(Dataset):
     def __init__(self, oads_access: OADS_Access, use_crops: bool, item_ids: list,
                  class_index_mapping: dict = None, transform=None, target_transform=None,
-                 device='cuda:0', target: str = 'label', force_recompute:bool=False) -> None:
+                 device='cuda:0', target: str = 'label', force_recompute:bool=False, preload_all:bool=False) -> None:
         super().__init__()
 
         self.oads_access = oads_access
@@ -1112,11 +1112,19 @@ class OADSImageDataset(Dataset):
 
         self.target = target
         self.force_recompute = force_recompute
+        self.preload_all = preload_all
 
-    def __len__(self):
-        return len(self.item_ids)
+        self.tupels = {}
 
-    def __getitem__(self, idx):
+        if self.preload_all:
+            print(f'Preloading {len(item_ids)} items.')
+            with multiprocessing.Pool(oads_access.n_processes) as pool:
+                results = list(tqdm.tqdm(pool.imap(self.iterate, [idx for idx in range(len(item_ids))]), total=len(item_ids)))
+            for idx, tup in results:
+                self.tupels[idx] = tup
+            
+
+    def iterate(self, idx):
         if self.use_crops:
             image_name, index = self.item_ids[idx]
             tup = self.oads_access.load_crop_from_image(
@@ -1124,6 +1132,27 @@ class OADSImageDataset(Dataset):
         else:
             image_name = self.item_ids[idx]
             tup = self.oads_access.load_image(image_name=image_name)
+
+        if tup is None:
+            return None, None
+        
+        tup[0].load()
+        return idx, tup
+
+    def __len__(self):
+        return len(self.item_ids)
+
+    def __getitem__(self, idx):
+        if self.preload_all:
+            tup = self.tupels[idx]
+        else:
+            if self.use_crops:
+                image_name, index = self.item_ids[idx]
+                tup = self.oads_access.load_crop_from_image(
+                    image_name=image_name, index=index, force_recompute=self.force_recompute)
+            else:
+                image_name = self.item_ids[idx]
+                tup = self.oads_access.load_image(image_name=image_name)
 
         if tup is None:
             return None
