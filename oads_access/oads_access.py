@@ -29,13 +29,15 @@ class OADS_Access():
     FULL_SIZE = (5496, 3672)
 
     def __init__(self, basedir: str, file_formats: list = None, use_jpeg: bool = False,
-                 n_processes: int = 8, exclude_classes: list = [], exclude_datasets:list=[], jpeg_p=0.5, jpeg_quality=90):
+                 n_processes: int = 8, exclude_classes: list = [], exclude_datasets:list=[], 
+                 jpeg_p=0.5, jpeg_quality=90, min_size_crops=None):
         self.basedir = basedir
         self.file_formats = file_formats
         self.n_processes = n_processes
         self.exclude_classes = exclude_classes
         self.exclude_datasets = exclude_datasets
         self.use_jpeg = use_jpeg
+        self.min_size_crops = min_size_crops
 
 
         self.jpeg_p = jpeg_p
@@ -252,7 +254,7 @@ class OADS_Access():
             if tup is not None:
                 if use_crops:
                     crops = self.make_and_save_crops_from_image(
-                        img=tup[0], label=tup[1])
+                        image_name=image_name)
                     data.extend(crops)
                 else:
                     data.append(tup)
@@ -828,18 +830,20 @@ class OADS_Access():
         else:
             height, width = np.array(img).shape[:2]
 
-        old = (left, top, right, bottom, height, width)
-        min_size = (800, 800)
+        # old = (left, top, right, bottom, height, width)
 
-        # Check if crop would be too small
-        if right-left < min_size[0]:
-            mid_point = left + (right - left) / 2
-            left = mid_point - min_size[0] / 2
-            right = mid_point + min_size[0] / 2
-        if bottom-top < min_size[1]:
-            mid_point = top + (bottom - top) / 2
-            top = mid_point - min_size[1] / 2
-            bottom = mid_point + min_size[1] / 2
+        if self.min_size_crops is not None:
+            min_size = self.min_size_crops # (800, 800)
+
+            # Check if crop would be too small
+            if right-left < min_size[0]:
+                mid_point = left + (right - left) / 2
+                left = mid_point - min_size[0] / 2
+                right = mid_point + min_size[0] / 2
+            if bottom-top < min_size[1]:
+                mid_point = top + (bottom - top) / 2
+                top = mid_point - min_size[1] / 2
+                bottom = mid_point + min_size[1] / 2
 
         # # Check if crop would be too big
         # if not max_size is None:
