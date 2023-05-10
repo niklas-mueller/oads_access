@@ -22,7 +22,7 @@ if __name__ == '__main__':
                         default='/home/niklas/projects/data/oads')
     args = parser.parse_args()
     # tiff_dir = "/home/niklas/projects/data/oads/oads_arw/tiff"
-    tiff_dir = '/mnt/c/Users/nikla/OneDrive/PhD/Projects/OADS Indoor Images (Hongye)/oads_arw/tiff_30_30'
+    tiff_dir = '/mnt/c/Users/nikla/OADS Missing Images from Camera/Upload_to_drive/ARW/tiff'
 
     target_size = (2155, 1440)
 

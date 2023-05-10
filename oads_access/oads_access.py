@@ -30,7 +30,7 @@ class OADS_Access():
 
     def __init__(self, basedir: str, file_formats: list = None, use_jpeg: bool = False,
                  n_processes: int = 8, exclude_classes: list = [], exclude_datasets:list=[], 
-                 jpeg_p=0.5, jpeg_quality=90, min_size_crops=None):
+                 jpeg_p=0.5, jpeg_quality=90, min_size_crops=None, crops_dir:str=None):
         self.basedir = basedir
         self.file_formats = file_formats
         self.n_processes = n_processes
@@ -44,7 +44,9 @@ class OADS_Access():
         self.jpeg_quality = jpeg_quality
 
         self.img_dir = os.path.join(self.basedir, 'oads_arw', 'ARW')
-        self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'jpeg' if use_jpeg else 'tiff')
+        self.crops_dir = crops_dir
+        if self.crops_dir is None:
+            self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'jpeg' if use_jpeg else 'tiff')
         os.makedirs(self.crops_dir, exist_ok=True)
         self.ann_dir = os.path.join(self.basedir, 'oads_annotations')
 
@@ -292,6 +294,7 @@ class OADS_Access():
             is_raw = True
             with rawpy.imread(filename) as raw:
                 img = raw.postprocess()
+                img = Image.fromarray(img)
 
         else:
             img = Image.open(filename)
@@ -423,7 +426,7 @@ class OADS_Access():
         return data
 
     def get_annotation_size(self, obj: dict, is_raw:bool=True):
-        ((left, top), (right, bottom)), _, _ = get_annotation_dimensions(
+        (left, top), (right, bottom) = get_annotation_dimensions(
             obj, is_raw=is_raw)
         height = bottom - top
         width = right - left
@@ -547,33 +550,46 @@ class OADS_Access():
             test_ids, test_size=test_size / (val_size+test_size))
 
         return train_ids, val_ids, test_ids
-
-    def _prepare_crops_dataset(self, args):
-        dataset_name, (overwrite) = args
-        for image_name in self.images_per_dataset[dataset_name]:
-            # tup = self.load_image(
-            #     dataset_name=dataset_name, image_name=image_name)
-            # if tup is not None:
-            #     (img, label) = tup
-            #     if convert_to_opponent_space:
-            #         img = rgb_to_opponent_space(np.array(img))
-            #     _ = self.make_and_save_crops_from_image(
-            #         img=img, label=label, image_name=image_name, is_opponent_space=convert_to_opponent_space, save_files=True, overwrite=overwrite, return_crops=False)
-            _ = self.make_and_save_crops_from_image(image_name=image_name, overwrite=overwrite, save_files=True)
-
-    def prepare_crops(self, dataset_names: list = None, overwrite: bool = False):
+    
+    def prepare_crops(self, dataset_names: list=None, overwrite:bool=False):
         if dataset_names is None:
             dataset_names = self.datasets
 
-        args = zip(dataset_names, [
-                   (overwrite) for _ in range(len(dataset_names))])
+        args = []
+        for dataset_name in dataset_names:
+            for img in self.images_per_dataset[dataset_name]:
+                args.append((img, True, overwrite, False))
 
         with multiprocessing.Pool(self.n_processes) as pool:
-            print(f"Number of processes: {pool._processes}")
-            _ = list(tqdm.tqdm(pool.imap(self._prepare_crops_dataset,
-                     args), total=len(dataset_names)))
+            _ = list(tqdm.tqdm(pool.starmap(self.make_and_save_crops_from_image, args), total=len(args)))
+        
 
-        # self.check_has_crop_files()
+    # def _prepare_crops_dataset(self, args):
+    #     dataset_name, (overwrite) = args
+    #     for image_name in self.images_per_dataset[dataset_name]:
+    #         # tup = self.load_image(
+    #         #     dataset_name=dataset_name, image_name=image_name)
+    #         # if tup is not None:
+    #         #     (img, label) = tup
+    #         #     if convert_to_opponent_space:
+    #         #         img = rgb_to_opponent_space(np.array(img))
+    #         #     _ = self.make_and_save_crops_from_image(
+    #         #         img=img, label=label, image_name=image_name, is_opponent_space=convert_to_opponent_space, save_files=True, overwrite=overwrite, return_crops=False)
+    #         _ = self.make_and_save_crops_from_image(image_name=image_name, overwrite=overwrite, save_files=True)
+
+    # def prepare_crops(self, dataset_names: list = None, overwrite: bool = False):
+    #     if dataset_names is None:
+    #         dataset_names = self.datasets
+
+    #     args = zip(dataset_names, [
+    #                (overwrite) for _ in range(len(dataset_names))])
+
+    #     with multiprocessing.Pool(self.n_processes) as pool:
+    #         print(f"Number of processes: {pool._processes}")
+    #         _ = list(tqdm.tqdm(pool.imap(self._prepare_crops_dataset,
+    #                  args), total=len(dataset_names)))
+
+    #     # self.check_has_crop_files()
 
     def make_image_crop_name(self, image_name, index:int):
         file_ending = f'.{self.crops_dir.split("/")[-1]}'
@@ -1102,7 +1118,8 @@ def plot_image_in_color_spaces(image: np.ndarray, figsize=(10, 5), cmap_rgb: str
 class OADSImageDataset(Dataset):
     def __init__(self, oads_access: OADS_Access, use_crops: bool, item_ids: list,
                  class_index_mapping: dict = None, transform=None, target_transform=None,
-                 device='cuda:0', target: str = 'label', force_recompute:bool=False, preload_all:bool=False) -> None:
+                 device='cuda:0', target: str = 'label', force_recompute:bool=False, preload_all:bool=False,
+                 return_index:bool=False) -> None:
         super().__init__()
 
         self.oads_access = oads_access
@@ -1117,6 +1134,8 @@ class OADSImageDataset(Dataset):
         self.target = target
         self.force_recompute = force_recompute
         self.preload_all = preload_all
+
+        self.return_index = return_index
 
         self.tupels = {}
 
@@ -1182,4 +1201,7 @@ class OADSImageDataset(Dataset):
         if self.target == 'image':
             label = img
 
+        if self.return_index:
+            return (img, label, idx)
+        
         return (img, label)

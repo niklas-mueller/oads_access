@@ -105,7 +105,7 @@ def get_bin_values(data, bins, min_count):
     return bin_indices, bin_values
 
 
-def plot_images(images, fig=None, max_images: int = None, figsize=(15, 10), titles:list=None, cmap=None, axis_off:bool=True, orientation='landscape'):
+def plot_images(images, fig=None, max_images: int = None, figsize=(15, 10), titles:list=None, cmap=None, axis_off:bool=True, orientation='landscape', custom_func_per_image=None):
     if max_images is None:
         max_images = len(images)
 
@@ -134,6 +134,9 @@ def plot_images(images, fig=None, max_images: int = None, figsize=(15, 10), titl
                 ax.axis('off')
             if titles is not None and len(titles) > index:
                 ax.set_title(titles[index])
+
+            if custom_func_per_image is not None:
+                custom_func_per_image(ax, index)
             index += 1
 
     fig.tight_layout()

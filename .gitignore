@@ -1,10 +1,42 @@
 *.egg-info
+oads_access.eeg-info
 
 */__pycache__
+test/__pycache__
 
 output
 
 results
+results/*
 
 dataloader
 dataloader/*
+
+generated
+generated/*
+
+notebooks/images
+notebooks/images/*
+
+notebooks/convert_to_ML_dataset.ipynb
+notebooks/check_natural_images.ipynb
+notebooks/crop_sampling.ipynb
+notebooks/data_augmentation.ipynb
+notebooks/data_access.ipynb
+notebooks/imagenet_examples.ipynb
+notebooks/inspect_models.ipynb
+notebooks/model_test.ipynb
+notebooks/processed_images.ipynb
+notebooks/simclr_test.ipynb
+notebooks/style_transfer_oads.ipynb
+
+update_conda.sh
+
+test/UploadScript.py
+test/find_best_image_selection.py
+test/get_dataset_description.py
+test/get_saliency_maps.py
+test/make_result_figures.py
+test/sample_image_crops.py
+test/test.py
+test/test_cancel.py

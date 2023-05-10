@@ -189,6 +189,7 @@ if __name__ == '__main__':
     print(f"Loaded data with train_ids.shape: {len(train_ids)}")
     print(f"Loaded data with val_ids.shape: {len(val_ids)}")
     print(f"Loaded data with test_ids.shape: {len(test_ids)}")
+    print(f"Total of {len(train_ids) + len(val_ids) + len(test_ids)} datapoints.")
 
     # Created custom OADS datasets
     traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, preload_all=bool(args.preload_all),
