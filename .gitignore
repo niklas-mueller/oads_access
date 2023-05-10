@@ -9,11 +9,11 @@ output
 results
 results/*
 
-dataloader
-dataloader/*
-
 generated
 generated/*
+
+generated_annotations
+generated_annotations/*
 
 notebooks/images
 notebooks/images/*
