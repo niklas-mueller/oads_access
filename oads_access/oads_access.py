@@ -1142,7 +1142,8 @@ class OADSImageDataset(Dataset):
         if self.preload_all:
             print(f'Preloading {len(item_ids)} items.')
             with multiprocessing.Pool(oads_access.n_processes) as pool:
-                results = list(tqdm.tqdm(pool.imap(self.iterate, [idx for idx in range(len(item_ids))]), total=len(item_ids)))
+                results = list(tqdm.tqdm(pool.map(self.iterate, [idx for idx in range(len(item_ids))]), total=len(item_ids)))
+                # results = list(tqdm.tqdm(pool.imap(self.iterate, [idx for idx in range(len(item_ids))]), total=len(item_ids)))
             for idx, tup in results:
                 self.tupels[idx] = tup
             
