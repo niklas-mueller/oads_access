@@ -11,6 +11,7 @@ from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 from torch import nn as nn
 import tqdm
+from p_tqdm import p_map
 
 
 class OADS_Access():
@@ -514,7 +515,7 @@ class OADS_Access():
 
         return len(annotation['objects'])
 
-    def get_train_val_test_split_indices(self, use_crops: bool, val_size: float = 0.1, test_size: float = 0.1, remove_duplicates: bool = True, dataset_names:list = []):
+    def get_train_val_test_split_indices(self, use_crops: bool, val_size: float = 0.1, test_size: float = 0.1, remove_duplicates: bool = True, dataset_names:list = [], shuffle:bool=False, random_state:int=42):
         if use_crops:
             # Tuple of image_name+index for index counts the number of crops for this image
             image_ids = []
@@ -545,9 +546,9 @@ class OADS_Access():
         if remove_duplicates:
             image_ids = list(set(image_ids))
         train_ids, test_ids = train_test_split(
-            image_ids, test_size=val_size+test_size)
+            image_ids, test_size=val_size+test_size, shuffle=shuffle, random_state=random_state)
         test_ids, val_ids = train_test_split(
-            test_ids, test_size=test_size / (val_size+test_size))
+            test_ids, test_size=test_size / (val_size+test_size), shuffle=shuffle, random_state=random_state)
 
         return train_ids, val_ids, test_ids
     
@@ -1142,8 +1143,10 @@ class OADSImageDataset(Dataset):
         if self.preload_all:
             print(f'Preloading {len(item_ids)} items.')
             with multiprocessing.Pool(oads_access.n_processes) as pool:
-                results = list(tqdm.tqdm(pool.map(self.iterate, [idx for idx in range(len(item_ids))]), total=len(item_ids)))
-                # results = list(tqdm.tqdm(pool.imap(self.iterate, [idx for idx in range(len(item_ids))]), total=len(item_ids)))
+                # results = list(tqdm.tqdm(pool.map(self.iterate, [idx for idx in range(len(item_ids))]), total=len(item_ids)))
+                results = list(tqdm.tqdm(pool.imap(self.iterate, [idx for idx in range(len(item_ids))]), total=len(item_ids)))
+
+            # results = p_map(self.iterate, [idx for idx in range(len(item_ids))])
             for idx, tup in results:
                 self.tupels[idx] = tup
             
@@ -1160,7 +1163,7 @@ class OADSImageDataset(Dataset):
         if tup is None:
             return None, None
         
-        tup[0].load()
+        # tup[0].load()
         return idx, tup
 
     def __len__(self):
