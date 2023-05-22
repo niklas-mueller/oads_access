@@ -221,8 +221,8 @@ if __name__ == '__main__':
         model.fc = torch.nn.Linear(
             in_features=2048, out_features=output_channels, bias=True)
     elif args.model_type == 'alexnet':
-        print('AlesNet is not supported ATM.')
-        exit(1)
+        # print('AlesNet is not supported ATM.')
+        # exit(1)
         model = alexnet()
         model.classifier[6] = torch.nn.Linear(4096, output_channels, bias=True)
     elif args.model_type == 'vgg16':
