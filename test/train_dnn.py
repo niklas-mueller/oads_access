@@ -9,7 +9,7 @@ import numpy as np
 import tqdm
 # from model import visTensor, TestModel, evaluate
 from result_manager.result_manager import ResultManager
-from oads_access.oads_access import OADS_Access, OADSImageDataset, plot_image_in_color_spaces
+from oads_access.oads_access import OADS_Access, OADSImageDataset, plot_image_in_color_spaces, OADSImageDatasetSharedMem
 # from retina_model import RetinaCortexModel
 import torchvision.transforms as transforms
 from torchvision.models import resnet18, resnet50, alexnet, vgg16
@@ -19,6 +19,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
 from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn, ToJpeg, ToOpponentChannel, ToRGBEdges, get_confusion_matrix, get_result_figures
+from pytorch_utils.resnet10 import ResNet10
 import multiprocessing
 from PIL import Image
 from oads_access.utils import plot_images, imscatter_all, loadmat
@@ -180,10 +181,10 @@ if __name__ == '__main__':
     if args.new_dataloader or new_dataloader:
         # get train, val, test split, using crops if specific size
         train_ids, val_ids, test_ids = oads.get_train_val_test_split_indices(use_crops=True)
-        
-        ids = {"train_ids": train_ids, "test_ids": test_ids, "val_ids": val_ids}
-        os.makedirs(args.dataloader_path, exist_ok=True)
-        np.savez_compressed(file=os.path.join(args.dataloader_path, 'item_ids.npz'), **ids)
+
+        # ids = {"train_ids": train_ids, "test_ids": test_ids, "val_ids": val_ids}
+        # os.makedirs(args.dataloader_path, exist_ok=True)
+        # np.savez_compressed(file=os.path.join(args.dataloader_path, 'item_ids.npz'), **ids)
         
 
     print(f"Loaded data with train_ids.shape: {len(train_ids)}")
@@ -192,12 +193,20 @@ if __name__ == '__main__':
     print(f"Total of {len(train_ids) + len(val_ids) + len(test_ids)} datapoints.")
 
     # Created custom OADS datasets
-    traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, preload_all=bool(args.preload_all),
-                                    class_index_mapping=class_index_mapping, transform=transform, device=device)
-    valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True, preload_all=bool(args.preload_all),
-                                    class_index_mapping=class_index_mapping, transform=transform, device=device)
-    testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True, preload_all=bool(args.preload_all),
-                                    class_index_mapping=class_index_mapping, transform=transform, device=device)
+    if bool(args.preload_all):
+        traindataset = OADSImageDatasetSharedMem(oads_access=oads, item_ids=train_ids, use_crops=True, size=(n_input_channels, size[0], size[1]),
+                                        class_index_mapping=class_index_mapping, transform=transform, device=device)
+        valdataset = OADSImageDatasetSharedMem(oads_access=oads, item_ids=val_ids, use_crops=True, size=(n_input_channels, size[0], size[1]),
+                                        class_index_mapping=class_index_mapping, transform=transform, device=device)
+        testdataset = OADSImageDatasetSharedMem(oads_access=oads, item_ids=test_ids, use_crops=True, size=(n_input_channels, size[0], size[1]),
+                                        class_index_mapping=class_index_mapping, transform=transform, device=device)
+    else:
+        traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True,
+                                        class_index_mapping=class_index_mapping, transform=transform, device=device)
+        valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True,
+                                        class_index_mapping=class_index_mapping, transform=transform, device=device)
+        testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True,
+                                        class_index_mapping=class_index_mapping, transform=transform, device=device)
 
     # Create loaders - shuffle training set, but not validation or test set
     trainloader = DataLoader(traindataset, collate_fn=collate_fn,
@@ -210,7 +219,9 @@ if __name__ == '__main__':
     print(f"Loaded data loaders")
 
     # Initialize model
-    if args.model_type == 'resnet18':
+    if args.model_type == 'resnet10':
+        model = ResNet10(n_output_channels=output_channels, n_input_channels=n_input_channels)
+    elif args.model_type == 'resnet18':
         model = resnet18()
         model.conv1 = torch.nn.Conv2d(in_channels=n_input_channels, out_channels=model.conv1.out_channels, kernel_size=(7,7), stride=(2,2), padding=(3,3), bias=False)
         model.fc = torch.nn.Linear(
@@ -305,11 +316,12 @@ if __name__ == '__main__':
 
     if args.test:
         print('Starting TEST')
-        print(f'Preloaded all crops:')
+        # print(f'Preloaded all crops:')
 
         start = time.time()
         for epoch in range(10):
-            for item in trainloader:
+            print(f'Epoch: {epoch}')
+            for item in tqdm.tqdm(trainloader, total=len(trainloader)):
                 pass
         end = time.time()
         print(end-start)

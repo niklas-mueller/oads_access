@@ -10,6 +10,8 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 from torch import nn as nn
+import torch
+import ctypes
 import tqdm
 from p_tqdm import p_map
 
@@ -1114,6 +1116,105 @@ def plot_image_in_color_spaces(image: np.ndarray, figsize=(10, 5), cmap_rgb: str
     ax[1][3].set_title('Original')
 
     return fig
+
+class OADSImageDatasetSharedMem(Dataset):
+    def __init__(self, oads_access: OADS_Access, use_crops: bool, item_ids: list, size: tuple,
+                 class_index_mapping: dict = None, transform=None, target_transform=None,
+                 device='cuda:0', target: str = 'label', force_recompute:bool=False,
+                 return_index:bool=False) -> None:
+        super().__init__()
+
+        c, h, w = size
+
+        self.oads_access = oads_access
+        self.use_crops = use_crops
+        self.item_ids = item_ids
+
+        self.transform = transform
+        self.target_transform = target_transform
+        self.class_index_mapping = class_index_mapping
+        self.device = device
+
+        self.target = target
+        self.force_recompute = force_recompute
+
+        self.return_index = return_index
+
+        self.nb_samples = len(self.item_ids)
+
+        shared_array_base_x = multiprocessing.Array(ctypes.c_float, self.nb_samples*c*h*w)
+        shared_array_x = np.ctypeslib.as_array(shared_array_base_x.get_obj())
+        shared_array_x = shared_array_x.reshape(self.nb_samples, c, h, w)
+        self.shared_array_x = torch.from_numpy(shared_array_x)
+
+        if target == 'label':
+            shared_array_base_y = multiprocessing.Array(ctypes.c_float, self.nb_samples)
+            shared_array_y = np.ctypeslib.as_array(shared_array_base_y.get_obj())
+            shared_array_y = shared_array_y.reshape(self.nb_samples,)
+        elif target == 'image':
+            shared_array_base_y = multiprocessing.Array(ctypes.c_float, self.nb_samples*c*h*w)
+            shared_array_y = np.ctypeslib.as_array(shared_array_base_y.get_obj())
+            shared_array_y = shared_array_y.reshape(self.nb_samples, c, h, w)
+        self.shared_array_y = torch.from_numpy(shared_array_y)
+
+        shared_array_base_use_cache = multiprocessing.Array(ctypes.c_bool, self.nb_samples)
+        shared_array_use_cache = np.ctypeslib.as_array(shared_array_base_use_cache.get_obj())
+        shared_array_use_cache = shared_array_use_cache.reshape(self.nb_samples,)
+        self.shared_array_use_cache = torch.from_numpy(shared_array_use_cache)
+
+    
+    def __len__(self):
+        return self.nb_samples
+
+    def __getitem__(self, idx):
+        if not self.shared_array_use_cache[idx]:
+            # print(f'Caching')
+            if self.use_crops:
+                image_name, index = self.item_ids[idx]
+                tup = self.oads_access.load_crop_from_image(
+                    image_name=image_name, index=index, force_recompute=self.force_recompute)
+                
+            else:
+                image_name = self.item_ids[idx]
+                tup = self.oads_access.load_image(image_name=image_name)
+        
+            if tup is None:
+                return None
+
+            img, label = tup
+            del tup
+
+            if img is None or label is None:
+                return None
+
+            if self.target == 'label':
+                label = label['classId']
+                if self.class_index_mapping is not None:
+                    label = self.class_index_mapping[label]
+
+            if self.transform:
+                img = self.transform(img)
+            if self.target_transform:
+                label = self.target_transform(label)
+
+            img = img.float()
+
+            if self.target == 'image':
+                label = img
+
+            self.shared_array_x[idx] = img
+            self.shared_array_y[idx] = label
+
+            self.shared_array_use_cache[idx] = True
+        else:
+            # print(f'Using cached')
+            img = self.shared_array_x[idx]
+            label = self.shared_array_y[idx]
+
+        if self.return_index:
+            return (img, label, idx)
+        
+        return (img, label)
 
 
 class OADSImageDataset(Dataset):
