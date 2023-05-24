@@ -1291,20 +1291,24 @@ class OADSImageDataset(Dataset):
         if img is None or label is None:
             return None
 
+        if self.transform:
+            img = self.transform(img)
+
+        img = img.float()
+
         if self.target == 'label':
             label = label['classId']
             if self.class_index_mapping is not None:
                 label = self.class_index_mapping[label]
 
-        if self.transform:
-            img = self.transform(img)
+        elif self.target == 'image':
+            label = img
+
+        else:
+            label = np.array([])
+
         if self.target_transform:
             label = self.target_transform(label)
-
-        img = img.float()
-
-        if self.target == 'image':
-            label = img
 
         if self.return_index:
             return (img, label, idx)
