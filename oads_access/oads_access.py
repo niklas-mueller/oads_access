@@ -49,7 +49,9 @@ class OADS_Access():
         self.img_dir = os.path.join(self.basedir, 'oads_arw', 'ARW')
         self.crops_dir = crops_dir
         if self.crops_dir is None:
-            self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'jpeg' if use_jpeg else 'tiff')
+        #     self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'jpeg' if use_jpeg else 'tiff')
+            self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'ML')
+            
         os.makedirs(self.crops_dir, exist_ok=True)
         self.ann_dir = os.path.join(self.basedir, 'oads_annotations')
 

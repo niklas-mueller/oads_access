@@ -80,7 +80,7 @@ if __name__ == '__main__':
     else:
         device = torch.device("cuda")
         torch.cuda.empty_cache()
-        print("Using GPU!")
+        print(f"Using GPU: {device}!")
 
     # Setting weird stuff
     torch.multiprocessing.set_start_method('spawn')
