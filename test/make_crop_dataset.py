@@ -1,8 +1,9 @@
+import time
 import os
 os.environ['MKL_NUM_THREADS'] = '5'
 os.environ['OPENBLAS_NUM_THREADS'] = '5'
 os.environ["NUMEXPR_NUM_THREADS"] = "5" 
-
+from pathlib import Path
 import multiprocessing
 import tqdm
 from oads_access.oads_access import OADS_Access
@@ -13,12 +14,16 @@ def iterate(args):
     # (image_id, index), c, oads, crop_dir = args
     c, oads, crop_dir, image_list = args
     os.makedirs(os.path.join(crop_dir, c), exist_ok=True)
-    for x in image_list:
+    for x in tqdm.tqdm(image_list):
         image_id, index = x.split("_")
+
+        if f'{c}_{image_id}_{index}.tiff' in os.listdir(os.path.join(crop_dir, c)):
+            Path(os.path.join(crop_dir, c, f'{c}_{image_id}_{index}.tiff')).unlink()
 
         if f'{image_id}_{index}.tiff' in os.listdir(os.path.join(crop_dir, c)):
             continue        
 
+        # print(c, image_id, index)
         img, _ = oads.load_crop_from_image(image_name=image_id, index=int(index))
 
         img.save(os.path.join(crop_dir, c, f'{image_id}_{index}.tiff'))
@@ -35,17 +40,17 @@ if __name__ == '__main__':
     os.makedirs(crop_dir, exist_ok=True)
 
     # with multiprocessing.Pool(5) as pool:
+        # pool.imap(lambda x: time.sleep(10), range(100))
         # results = pool.map(iterate, [(x.split('_'), c, oads, crop_dir) for x in image_list])
-        # results = pool.map(iterate, [(c, oads, crop_dir, image_list) for c, image_list in oads.images_per_class.items()])
-    for c, image_list in tqdm.tqdm(oads.images_per_class.items()):
+        # results = list(tqdm.tqdm(pool.imap(iterate, [(c, oads, crop_dir, image_list) for c, image_list in oads.images_per_class.items() if len(image_list) > len(os.listdir(os.path.join(crop_dir, c)))])))
+
+    tupels = list(oads.images_per_class.items())
+    c, image_list = tupels[19]
+
+    # for c, image_list in tqdm.tqdm():
+    if len(image_list) == len(os.listdir(os.path.join(crop_dir, c))):
+        print(c)
+    else:
+        # print(len(image_list), len(os.listdir(os.path.join(crop_dir, c))))
         iterate((c, oads, crop_dir, image_list))
-    #     os.makedirs(os.path.join(crop_dir, c), exist_ok=True)
 
-        
-        # for x in image_list:
-        #     image_id, index = x.split('_')
-
-        #     img, label = oads.load_crop_from_image(image_name=image_id, index=int(index))
-
-        #     img.save(os.path.join(crop_dir, c, f'{x}.tiff'))
-        #     # print(x)
