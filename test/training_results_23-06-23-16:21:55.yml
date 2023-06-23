@@ -1,0 +1,54 @@
+epoch_times:
+- 7.6715497970581055
+- 4.6676647663116455
+- 4.358932733535767
+- 4.332090616226196
+- 4.678814888000488
+eval_trained_testdata:
+  accuracy: 0.0
+  batch_losses:
+    0: 3.7964627742767334
+  num_correct: 0
+  num_samples: 1
+eval_trained_traindata:
+  accuracy: 1.0
+  batch_losses:
+    0: 0.7230736017227173
+eval_trained_valdata:
+  accuracy: 0.0
+  batch_losses:
+    0: 3.796940803527832
+  num_correct: 0
+  num_samples: 1
+training_losses:
+- 3.2184677124023438
+- 0.15715724229812622
+- 0.0036339217331260443
+- 0.0002466136065777391
+- 3.158996332786046e-05
+validation_during_training_epoch-0:
+  accuracy: 0.0
+  batch_losses:
+    0: 3.130110263824463
+validation_during_training_epoch-1:
+  accuracy: 0.0
+  batch_losses:
+    0: 3.1321280002593994
+validation_during_training_epoch-2:
+  accuracy: 0.0
+  batch_losses:
+    0: 3.186884880065918
+validation_during_training_epoch-3:
+  accuracy: 0.0
+  batch_losses:
+    0: 3.390781879425049
+validation_during_training_epoch-4:
+  accuracy: 0.0
+  batch_losses:
+    0: 3.796940803527832
+validation_losses:
+- 3.130110263824463
+- 3.1321280002593994
+- 3.186884880065918
+- 3.390781879425049
+- 3.796940803527832

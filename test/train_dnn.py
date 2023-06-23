@@ -1,3 +1,12 @@
+import os
+nproc = 12
+
+os.environ["OMP_NUM_THREADS"] = str(nproc)
+os.environ["OPENBLAS_NUM_THREADS"] = str(nproc)
+os.environ["MKL_NUM_THREADS"] = str(nproc)
+os.environ["VECLIB_MAXIMUM_THREADS"] = str(nproc)
+os.environ["NUMEXPR_NUM_THREADS"] = str(nproc)
+
 import argparse
 import os
 import sys
@@ -18,7 +27,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
-from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn, ToJpeg, ToOpponentChannel, ToRGBEdges, ToRetinalGanglionCellSampling, get_confusion_matrix, get_result_figures
+from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn, ToJpeg, EdgeResize, ToOpponentChannel, ToRGBEdges, ToRetinalGanglionCellSampling, get_confusion_matrix, get_result_figures
 from pytorch_utils.resnet10 import ResNet10
 import multiprocessing
 from PIL import Image
@@ -96,7 +105,7 @@ if __name__ == '__main__':
 
     n_input_channels = 3
 
-    convert_to_rgbedges = False
+    use_rgbedges = False
     convert_to_opponent_space = False
     convert_to_gcs = False
 
@@ -107,9 +116,9 @@ if __name__ == '__main__':
         # file_formats = ['.tiff']
         convert_to_opponent_space = True
     elif args.image_representation == 'RGBEdges':
-        file_formats = ['.ARW', '.tiff']
+        file_formats = ['.ARW', '.npy']
         n_input_channels = 6
-        convert_to_rgbedges = True
+        use_rgbedges = True
     elif args.image_representation == 'RGB_GCS':
         file_formats = ['.ARW', '.tiff']
         n_input_channels =3
@@ -130,7 +139,7 @@ if __name__ == '__main__':
 
     home = args.input_dir
     oads = OADS_Access(home, file_formats=file_formats, use_jpeg=bool(args.use_jpeg), n_processes=int(
-        args.n_processes), exclude_classes=exclude_classes, jpeg_quality=int(args.jpeg_quality))
+        args.n_processes), exclude_classes=exclude_classes, jpeg_quality=int(args.jpeg_quality), use_rgbedges=use_rgbedges)
 
     # Compute crops if necessary
     if args.force_recrop:
@@ -156,7 +165,7 @@ if __name__ == '__main__':
         mean = [0.30080804, 0.02202087, 0.01321364]
         std =  [0.06359817, 0.01878176, 0.0180428]
     else:
-        if not convert_to_rgbedges:
+        if not use_rgbedges:
             # OADS RGB Crops (400,400) mean, std
             mean = [0.3410, 0.3123, 0.2787]
             std = [0.2362, 0.2252, 0.2162]
@@ -167,7 +176,11 @@ if __name__ == '__main__':
     # Get the custom dataset and dataloader
     print(f"Getting data loaders")
     transform_list = []
-    transform_list.append(transforms.Resize(size))
+
+    if use_rgbedges:
+        transform_list.append(EdgeResize(size))
+    else:
+        transform_list.append(transforms.Resize(size))
 
     if convert_to_gcs:
         transform_list.append(ToRetinalGanglionCellSampling())
@@ -177,11 +190,11 @@ if __name__ == '__main__':
         transform_list.append(ToOpponentChannel())
 
     # Compute edge map and use as input instead
-    if convert_to_rgbedges:
-        threshold_lgn_path = f'{os.path.expanduser("~")}/projects/lgnpy/ThresholdLGN.mat'
-        default_config_path = f'{os.path.expanduser("~")}/projects/lgnpy/lgnpy/CEandSC/default_config.yml'
-        threshold_lgn = loadmat(threshold_lgn_path)['ThresholdLGN']
-        transform_list.append(ToRGBEdges(threshold_lgn=threshold_lgn, default_config_path=default_config_path))
+    # if use_rgbedges:
+        # threshold_lgn_path = f'{os.path.expanduser("~")}/projects/lgnpy/ThresholdLGN.mat'
+        # default_config_path = f'{os.path.expanduser("~")}/projects/lgnpy/lgnpy/CEandSC/default_config.yml'
+        # threshold_lgn = loadmat(threshold_lgn_path)['ThresholdLGN']
+        # transform_list.append(ToRGBEdges(threshold_lgn=threshold_lgn, default_config_path=default_config_path))
 
 
     transform_list.append(transforms.ToTensor())
@@ -218,6 +231,9 @@ if __name__ == '__main__':
         # os.makedirs(args.dataloader_path, exist_ok=True)
         # np.savez_compressed(file=os.path.join(args.dataloader_path, 'item_ids.npz'), **ids)
         
+    train_ids = [('c0b2d8e1d3d39afe', 0)]
+    val_ids = [('c0b2d8e1d3d39afe', 1)]
+    test_ids = [('c0b2d8e1d3d39afe', 2)]
 
     print(f"Loaded data with train_ids.shape: {len(train_ids)}")
     print(f"Loaded data with val_ids.shape: {len(val_ids)}")
