@@ -12,13 +12,13 @@ from result_manager.result_manager import ResultManager
 from oads_access.oads_access import OADS_Access, OADSImageDataset, plot_image_in_color_spaces, OADSImageDatasetSharedMem
 # from retina_model import RetinaCortexModel
 import torchvision.transforms as transforms
-from torchvision.models import resnet18, resnet50, alexnet, vgg16
+from torchvision.models import resnet18, resnet50, alexnet, vgg16, vgg11_bn
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
-from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn, ToJpeg, ToOpponentChannel, ToRGBEdges, get_confusion_matrix, get_result_figures
+from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn, ToJpeg, ToOpponentChannel, ToRGBEdges, ToRetinalGanglionCellSampling, get_confusion_matrix, get_result_figures
 from pytorch_utils.resnet10 import ResNet10
 import multiprocessing
 from PIL import Image
@@ -58,6 +58,8 @@ if __name__ == '__main__':
     parser.add_argument(
         '--image_size', help='Batch size for training.', default=400)
     parser.add_argument(
+        '--random_state', help='Random state for train test split function. Control for crossvalidation. Can be integer or None. Default 42', default=42)
+    parser.add_argument(
         '-use_jpeg', help='Whether to use JPEG Compression or not', action='store_true')
     parser.add_argument(
         '--jpeg_quality', help='Batch size for training.', default=90)
@@ -67,6 +69,8 @@ if __name__ == '__main__':
         '--dataloader_path', help='Path to a directory where the dataloaders can be stored from', default='/home/niklas/projects/oads_access/dataloader')
     parser.add_argument(
         '-preload_all', help='Whether to preloader all images into memory before. Will require around 260GB of RAM but will boost performance a lot.', action='store_true')
+    parser.add_argument(
+        '-no_normalization', help='Whether to test', action='store_true')
     parser.add_argument(
         '-test', help='Whether to test', action='store_true')
 
@@ -94,16 +98,27 @@ if __name__ == '__main__':
 
     convert_to_rgbedges = False
     convert_to_opponent_space = False
+    convert_to_gcs = False
+
     if args.image_representation == 'RGB':
-        file_formats = ['.ARW']
+        file_formats = ['.ARW', '.tiff']
     elif args.image_representation == 'COC':
-        file_formats = ['.ARW']
+        file_formats = ['.ARW', '.tiff']
         # file_formats = ['.tiff']
         convert_to_opponent_space = True
     elif args.image_representation == 'RGBEdges':
-        file_formats = ['.ARW']
+        file_formats = ['.ARW', '.tiff']
         n_input_channels = 6
         convert_to_rgbedges = True
+    elif args.image_representation == 'RGB_GCS':
+        file_formats = ['.ARW', '.tiff']
+        n_input_channels =3
+        convert_to_gcs = True
+    elif args.image_representation == 'COC_GCS':
+        file_formats = ['.ARW', '.tiff']
+        n_input_channels =3
+        convert_to_opponent_space = True
+        convert_to_gcs = True
 
     else:
         print(f"Image representation is not know. Exiting.")
@@ -136,15 +151,27 @@ if __name__ == '__main__':
 
     batch_size = int(args.batch_size) # 256
 
-    # OADS Crops (400,400) mean, std
-    mean = [0.3410, 0.3123, 0.2787]
-    std = [0.2362, 0.2252, 0.2162]
+    if convert_to_opponent_space:
+        # OADS COC Crops (400,400) mean, std
+        mean = [0.30080804, 0.02202087, 0.01321364]
+        std =  [0.06359817, 0.01878176, 0.0180428]
+    else:
+        if not convert_to_rgbedges:
+            # OADS RGB Crops (400,400) mean, std
+            mean = [0.3410, 0.3123, 0.2787]
+            std = [0.2362, 0.2252, 0.2162]
+        else:
+            mean = None
+            std = None
 
     # Get the custom dataset and dataloader
     print(f"Getting data loaders")
     transform_list = []
     transform_list.append(transforms.Resize(size))
 
+    if convert_to_gcs:
+        transform_list.append(ToRetinalGanglionCellSampling())
+        
     # Apply color opponnent channel representation
     if convert_to_opponent_space:
         transform_list.append(ToOpponentChannel())
@@ -156,8 +183,12 @@ if __name__ == '__main__':
         threshold_lgn = loadmat(threshold_lgn_path)['ThresholdLGN']
         transform_list.append(ToRGBEdges(threshold_lgn=threshold_lgn, default_config_path=default_config_path))
 
+
     transform_list.append(transforms.ToTensor())
-    transform_list.append(transforms.Normalize(mean, std))
+
+    # if not bool(args.no_normalization) or not convert_to_rgbedges:
+    if mean is not None and std is not None:
+        transform_list.append(transforms.Normalize(mean, std))
 
     transform = transforms.Compose(transform_list)
 
@@ -180,7 +211,8 @@ if __name__ == '__main__':
 
     if args.new_dataloader or new_dataloader:
         # get train, val, test split, using crops if specific size
-        train_ids, val_ids, test_ids = oads.get_train_val_test_split_indices(use_crops=True)
+        random_state = int(args.random_state) if args.random_state != 'None' else None
+        train_ids, val_ids, test_ids = oads.get_train_val_test_split_indices(use_crops=True, random_state=random_state, shuffle=True)
 
         # ids = {"train_ids": train_ids, "test_ids": test_ids, "val_ids": val_ids}
         # os.makedirs(args.dataloader_path, exist_ok=True)
@@ -201,11 +233,11 @@ if __name__ == '__main__':
         testdataset = OADSImageDatasetSharedMem(oads_access=oads, item_ids=test_ids, use_crops=True, size=(n_input_channels, size[0], size[1]),
                                         class_index_mapping=class_index_mapping, transform=transform, device=device)
     else:
-        traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True,
+        traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, return_index=True,
                                         class_index_mapping=class_index_mapping, transform=transform, device=device)
-        valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True,
+        valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True, return_index=True,
                                         class_index_mapping=class_index_mapping, transform=transform, device=device)
-        testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True,
+        testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True, return_index=True,
                                         class_index_mapping=class_index_mapping, transform=transform, device=device)
 
     # Create loaders - shuffle training set, but not validation or test set
@@ -238,6 +270,11 @@ if __name__ == '__main__':
         model.classifier[6] = torch.nn.Linear(4096, output_channels, bias=True)
     elif args.model_type == 'vgg16':
         model = vgg16()
+        model.features[0] = torch.nn.Conv2d(in_channels=n_input_channels, out_channels=64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
+        model.classifier[-1] = torch.nn.Linear(4096,
+                                               output_channels, bias=True)
+    elif args.model_type == 'vgg11_bn':
+        model = vgg11_bn()
         model.features[0] = torch.nn.Conv2d(in_channels=n_input_channels, out_channels=64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
         model.classifier[-1] = torch.nn.Linear(4096,
                                                output_channels, bias=True)
@@ -296,9 +333,9 @@ if __name__ == '__main__':
         optimizer, 'min', patience=5)
 
     info = {
-        # 'training_indices': train_ids,
-        # 'testing_indices': test_ids,
-        # 'validation_indices': val_ids,
+        'training_indices': train_ids,
+        'testing_indices': test_ids,
+        'validation_indices': val_ids,
         'optimizer': str(optimizer),
         'scheduler': str(plateau_scheduler),
         'model': str(model),
@@ -318,13 +355,31 @@ if __name__ == '__main__':
         print('Starting TEST')
         # print(f'Preloaded all crops:')
 
-        start = time.time()
-        for epoch in range(10):
-            print(f'Epoch: {epoch}')
-            for item in tqdm.tqdm(trainloader, total=len(trainloader)):
-                pass
-        end = time.time()
-        print(end-start)
+        # start = time.time()
+        # for epoch in range(10):
+        #     print(f'Epoch: {epoch}')
+        #     for item in tqdm.tqdm(trainloader, total=len(trainloader)):
+        #         pass
+        # end = time.time()
+        # print(end-start)
+        fig, ax = plt.subplots(3, 20, figsize=(30, 5))
+        index = 0
+        for image, label in trainloader:
+            for img, lbl in zip(image, label):
+                if index < 20:
+                    img = np.array(img)
+                    ax[0][index].imshow(img[0], cmap='gray')
+                    ax[0][index].set_title('R')
+                    ax[1][index].imshow(img[1], cmap='gray')
+                    ax[1][index].set_title('G')
+                    ax[2][index].imshow(img[2], cmap='gray')
+                    ax[2][index].set_title('B')
+                    index += 1
+                else:
+                    break
+        fig.tight_layout()
+        result_manager.save_pdf(
+                figs=[fig], filename=f'oads_example_train_stimuli_{args.image_representation}_jpeg_{args.use_jpeg}.pdf')
         
 
         # print('Getting mean and std')
@@ -437,8 +492,9 @@ if __name__ == '__main__':
             # if type(confusion_matrix) == np.NpzFile:
             #     confusion_matrix.close()
     else:
-        result_manager.save_result(
-            result=info, filename=f'fitting_description_{c_time}.yaml')
+        if len(results) == 0:
+            result_manager.save_result(
+                result=info, filename=f'fitting_description_{c_time}.yaml')
 
         train(model=model, trainloader=trainloader, valloader=valloader, device=device, results=results,
               loss_fn=criterion, optimizer=optimizer, n_epochs=n_epochs, result_manager=result_manager,

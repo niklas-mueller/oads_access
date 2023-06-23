@@ -1,4 +1,5 @@
 import multiprocessing
+from collections import OrderedDict
 import os
 import json
 from PIL import Image
@@ -49,7 +50,7 @@ class OADS_Access():
         self.img_dir = os.path.join(self.basedir, 'oads_arw', 'ARW')
         self.crops_dir = crops_dir
         if self.crops_dir is None:
-        #     self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'jpeg' if use_jpeg else 'tiff')
+            # self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'jpeg' if use_jpeg else 'tiff')
             self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'ML')
             
         os.makedirs(self.crops_dir, exist_ok=True)
@@ -63,7 +64,8 @@ class OADS_Access():
 
         self.images_per_class = {}
         self.classes = []
-        self.image_names = {}
+        # self.image_names = {}
+        self.image_names = OrderedDict()
         self.label_id_to_image = {}
         
         self.missing_raw_images = {}
@@ -116,16 +118,16 @@ class OADS_Access():
                         tup[f'{type_folder_name}_file_name'] = type_filename
                         tup[f'{type_folder_name}_file_path'] = os.path.join(basedir, 'oads_arw', type_folder_name, type_filename)
                 
-                i = 0
+                # i = 0
                 tup['crop_file_type'] = '.jpeg' if self.use_jpeg else '.tiff'
                 tup['crop_file_paths'] = {}
-                while True:
-                    crop_path = os.path.join(self.crops_dir, f"{file_id}_{i}{tup['crop_file_type']}")
-                    if os.path.exists(crop_path):
-                        tup['crop_file_paths'][i] = crop_path
-                        i += 1
-                    else:
-                        break
+                # while True:
+                #     crop_path = os.path.join(self.crops_dir, f"{file_id}_{i}{tup['crop_file_type']}")
+                #     if os.path.exists(crop_path):
+                #         tup['crop_file_paths'][i] = crop_path
+                #         i += 1
+                #     else:
+                #         break
                 
                 ################
                 # Get annotations
@@ -145,6 +147,12 @@ class OADS_Access():
                                     self.images_per_class[obj['classTitle']] = [f"{file_id}_{index}"]
 
                                 self.label_id_to_image[obj['id']] = file_id
+
+                                # Get Crop path
+                                crop_path = os.path.join(self.crops_dir, obj['classTitle'], f'{file_id}_{index}.tiff')
+                                # print(crop_path)
+                                if os.path.exists(crop_path):
+                                    tup['crop_file_paths'][index] = crop_path
 
                 # if len(tup['crop_file_paths']) == 0:
                 #     tup['number_of_annotations'] = len(tup['object_labels'])
@@ -315,6 +323,7 @@ class OADS_Access():
     def load_crop(self, crop_path: str, image_name: str, index: int):
         fileformat = os.path.splitext(crop_path)[-1]
         if self.file_formats is not None and fileformat not in self.file_formats:
+            print('file format')
             return None
 
         crop = Image.open(crop_path)
@@ -363,29 +372,6 @@ class OADS_Access():
         else:
             filename = self.make_image_crop_name(image_name=image_name, index=index)
             tup = self.make_crop_from_image(image_name=image_name, index=index, dataset_name=dataset_name, filename=filename)
-            # tup = self.load_image(
-            #     dataset_name=dataset_name, image_name=image_name)
-
-            # if tup is None:
-            #     print(image_name)
-            #     return None
-
-            # img, label = tup
-
-            # is_raw = label['is_raw']
-            # if use_jpeg:
-            #     img = ToJpeg(resize=False, p=self.jpeg_p, quality=self.jpeg_quality)(img)
-            #     # is_raw = False
-
-            # # This index needs to be normalized/adjust somehow
-            # obj = label['objects'][index]
-            # if self.exclude_oversized_crops:
-            #     width, height = self.get_annotation_size(
-            #         obj, is_raw=is_raw)
-            #     if height > self.max_size_crops[0] or width > self.max_size_crops[1]:
-            #         return None
-            # crop = self.get_image_crop(
-            #     img=img, object=obj, is_raw=is_raw, is_opponent_space=is_opponent_space)
 
         return tup
 
@@ -549,6 +535,9 @@ class OADS_Access():
 
         if remove_duplicates:
             image_ids = list(set(image_ids))
+
+        image_ids = sorted(image_ids)
+        # print(image_ids[:10])
         train_ids, test_ids = train_test_split(
             image_ids, test_size=val_size+test_size, shuffle=shuffle, random_state=random_state)
         test_ids, val_ids = train_test_split(
@@ -718,7 +707,7 @@ class OADS_Access():
         results = {}
 
         crop_counter = 0
-        for dataset_name, image_names in self.images_per_dataset.items():
+        for dataset_name, image_names in tqdm.tqdm(self.images_per_dataset.items()):
             if dataset_name not in results.keys():
                 results[dataset_name] = {}
             for image_name in image_names:
@@ -878,7 +867,7 @@ class OADS_Access():
         #         bottom = mid_point + max_size[1] / 2
 
         # make sure nothing is cropped outside the actual image
-        redo = True
+        redo = False
         while redo:
             if left < 0:
                 redo = True
