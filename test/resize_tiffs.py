@@ -21,8 +21,8 @@ if __name__ == '__main__':
     parser.add_argument('--input_dir', help='Path to input directory.',
                         default='/home/niklas/projects/data/oads')
     args = parser.parse_args()
-    # tiff_dir = "/home/niklas/projects/data/oads/oads_arw/tiff"
-    tiff_dir = '/mnt/c/Users/nikla/OADS Missing Images from Camera/Upload_to_drive/ARW/tiff'
+    tiff_dir = "/home/niklas/projects/data/oads/oads_arw/tiff"
+    # tiff_dir = '/mnt/c/Users/nikla/OADS Missing Images from Camera/Upload_to_drive/ARW/tiff'
 
     target_size = (2155, 1440)
 

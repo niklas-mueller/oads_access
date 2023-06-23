@@ -6,12 +6,12 @@ import torch.optim as optim
 import tqdm
 from torchvision import transforms
 
-def image_loader(oads, image_name, index, loader, device):
-    image, _ = oads.load_crop_from_image(image_name=str(image_name), index=int(index))
+def image_loader(oads, image_name, index, transform, device):
+    image, label = oads.load_crop_from_image(image_name=str(image_name), index=int(index))
     # image = Image.open(image_name)
     # fake batch dimension required to fit network's input dimensions
-    image = loader(image).unsqueeze(0)
-    return image.to(device, torch.float)
+    image = transform(image).unsqueeze(0)
+    return image.to(device, torch.float), label['classId']
 
 
 class ContentLoss(nn.Module):

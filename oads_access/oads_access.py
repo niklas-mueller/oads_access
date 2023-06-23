@@ -130,13 +130,16 @@ class OADS_Access():
                 ################
                 # Get annotations
                 tup['object_labels'] = {}
+                tup['annotation_ids'] = {}
                 if os.path.exists(tup['annotation_file_path']):
                     with open(tup['annotation_file_path'], 'r') as f:
                         content = json.load(f)
                         tup['number_of_annotations'] = len(content['objects'])
+                        
                         for index, obj in enumerate(content['objects']):
                             if obj['classTitle'] not in exclude_classes:
                                 tup['object_labels'][index] = obj['classTitle']
+                                tup['annotation_ids'][index] = obj['id']
 
                                 self.classes.append(obj['classTitle'])
                                 if obj['classTitle'] in self.images_per_class:
