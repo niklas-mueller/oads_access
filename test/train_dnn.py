@@ -35,7 +35,8 @@ from oads_access.utils import plot_images, imscatter_all, loadmat
 
 ####### FLEX CONV
 import sys
-sys.path.append('/home/nmuller/projects/oads_flexconv')
+home_path = os.path.expanduser('~')
+sys.path.append(f'{home_path}/projects/oads_flexconv')
 from models.resnet import ResNet_image
 from omegaconf import OmegaConf
 ###########
