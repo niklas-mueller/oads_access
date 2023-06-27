@@ -34,13 +34,14 @@ class OADS_Access():
 
     def __init__(self, basedir: str, file_formats: list = None, use_jpeg: bool = False,
                  n_processes: int = 8, exclude_classes: list = [], exclude_datasets:list=[], 
-                 jpeg_p=0.5, jpeg_quality=90, min_size_crops=None, crops_dir:str=None):
+                 jpeg_p=0.5, jpeg_quality=90, min_size_crops=None, crops_dir:str=None, use_rgbedges:bool=False):
         self.basedir = basedir
         self.file_formats = file_formats
         self.n_processes = n_processes
         self.exclude_classes = exclude_classes
         self.exclude_datasets = exclude_datasets
         self.use_jpeg = use_jpeg
+        self.use_rgbedges = use_rgbedges
         self.min_size_crops = min_size_crops
 
 
@@ -51,7 +52,10 @@ class OADS_Access():
         self.crops_dir = crops_dir
         if self.crops_dir is None:
             # self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'jpeg' if use_jpeg else 'tiff')
-            self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'ML')
+            if not self.use_rgbedges:
+                self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'ML')
+            else:
+                self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'ML_edges')
             
         os.makedirs(self.crops_dir, exist_ok=True)
         self.ann_dir = os.path.join(self.basedir, 'oads_annotations')
@@ -119,7 +123,7 @@ class OADS_Access():
                         tup[f'{type_folder_name}_file_path'] = os.path.join(basedir, 'oads_arw', type_folder_name, type_filename)
                 
                 # i = 0
-                tup['crop_file_type'] = '.jpeg' if self.use_jpeg else '.tiff'
+                tup['crop_file_type'] = '.jpeg' if self.use_jpeg else ('.tiff' if not self.use_rgbedges else '.npy')
                 tup['crop_file_paths'] = {}
                 # while True:
                 #     crop_path = os.path.join(self.crops_dir, f"{file_id}_{i}{tup['crop_file_type']}")
@@ -152,7 +156,7 @@ class OADS_Access():
                                 self.label_id_to_image[obj['id']] = file_id
 
                                 # Get Crop path
-                                crop_path = os.path.join(self.crops_dir, obj['classTitle'], f'{file_id}_{index}.tiff')
+                                crop_path = os.path.join(self.crops_dir, obj['classTitle'], f'{file_id}_{index}{tup["crop_file_type"]}')
                                 # print(crop_path)
                                 if os.path.exists(crop_path):
                                     tup['crop_file_paths'][index] = crop_path
@@ -328,8 +332,11 @@ class OADS_Access():
         if self.file_formats is not None and fileformat not in self.file_formats:
             print('file format')
             return None
-
-        crop = Image.open(crop_path)
+        
+        if '.npy' in fileformat:
+            crop = np.load(crop_path)
+        else:
+            crop = Image.open(crop_path)
         label = self.get_annotation(image_name=image_name)['objects'][index]
 
         return (crop, label)
@@ -809,7 +816,7 @@ class OADS_Access():
         label['points']['exterior'] = list(
             np.array(data_tuple[1]['points']['exterior'])[::, ::-1, :])
         return (img, label)
-
+    
     def get_image_crop(self, img: "np.ndarray|list|Image.Image", object: dict, is_raw: bool = False):
         """get_image_crop
 

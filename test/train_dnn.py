@@ -33,6 +33,13 @@ import multiprocessing
 from PIL import Image
 from oads_access.utils import plot_images, imscatter_all, loadmat
 
+####### FLEX CONV
+import sys
+sys.path.append('/home/nmuller/projects/oads_flexconv')
+from models.resnet import ResNet_image
+from omegaconf import OmegaConf
+###########
+
 if __name__ == '__main__':
 
     c_time = datetime.now().strftime("%d-%m-%y-%H:%M:%S")
@@ -61,7 +68,7 @@ if __name__ == '__main__':
     parser.add_argument(
         '--image_representation', help='Way images are represented. Can be `RGB`, `COC` (color opponent channels), or `RGBCOC` (stacked RGB and COC)', default='RGB')
     parser.add_argument(
-        '--n_processes', help='Number of processes to use.', default=multiprocessing.cpu_count()-1)
+        '--n_processes', help='Number of processes to use.', default=18)
     parser.add_argument(
         '--batch_size', help='Batch size for training.', default=256)
     parser.add_argument(
@@ -91,7 +98,7 @@ if __name__ == '__main__':
         device = torch.device('cpu')
         exit(1)
     else:
-        device = torch.device("cuda")
+        device = torch.device("cuda:0")
         torch.cuda.empty_cache()
         print(f"Using GPU: {device}!")
 
@@ -231,9 +238,10 @@ if __name__ == '__main__':
         # os.makedirs(args.dataloader_path, exist_ok=True)
         # np.savez_compressed(file=os.path.join(args.dataloader_path, 'item_ids.npz'), **ids)
         
-    train_ids = [('c0b2d8e1d3d39afe', 0)]
-    val_ids = [('c0b2d8e1d3d39afe', 1)]
-    test_ids = [('c0b2d8e1d3d39afe', 2)]
+    if use_rgbedges:
+        train_ids = [('c0b2d8e1d3d39afe', 0)]
+        val_ids = [('c0b2d8e1d3d39afe', 1)]
+        test_ids = [('c0b2d8e1d3d39afe', 2)]
 
     print(f"Loaded data with train_ids.shape: {len(train_ids)}")
     print(f"Loaded data with val_ids.shape: {len(val_ids)}")
@@ -279,6 +287,22 @@ if __name__ == '__main__':
         model.conv1 = torch.nn.Conv2d(in_channels=n_input_channels, out_channels=model.conv1.out_channels, kernel_size=(7,7), stride=(2,2), padding=(3,3), bias=False)
         model.fc = torch.nn.Linear(
             in_features=2048, out_features=output_channels, bias=True)
+        
+    ####################################### FLEX CONV
+    elif args.model_type == 'flex_resnet50':
+        cfg = OmegaConf.load('/home/nmuller/projects/oads_flexconv/cfg/oads_config.yaml')
+
+        cfg.net.data_dim = 2
+
+        model = ResNet_image(in_channels= n_input_channels,
+        out_channels= output_channels,
+        net_cfg=cfg.net,
+        kernel_cfg= cfg.kernel,
+        conv_cfg= cfg.conv,
+        mask_cfg= cfg.mask,)
+
+        # print(model)
+    #######################################
     elif args.model_type == 'alexnet':
         # print('AlesNet is not supported ATM.')
         # exit(1)
@@ -329,8 +353,10 @@ if __name__ == '__main__':
             n_epochs = [x for x in range(pre_epochs+1, pre_epochs+1+n_epochs)]
     
     # Use DataParallel to make use of multiple GPUs if available
-    if type(model) is not torch.nn.DataParallel:
-        model = torch.nn.DataParallel(model)
+    # if type(model) is not torch.nn.DataParallel:
+    #     # model = model.to('cuda:1')
+    #     model = torch.nn.DataParallel(model, device_ids=[0,1])
+    # else:
     model = model.to(device)  # , dtype=torch.float32
 
     # Loss Function
