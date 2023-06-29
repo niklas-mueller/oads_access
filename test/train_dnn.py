@@ -275,6 +275,7 @@ if __name__ == '__main__':
 
     print(f"Loaded data loaders")
 
+    cfg = None
     # Initialize model
     if args.model_type == 'resnet10':
         model = ResNet10(n_output_channels=output_channels, n_input_channels=n_input_channels)
@@ -294,6 +295,13 @@ if __name__ == '__main__':
         cfg = OmegaConf.load('/home/nmuller/projects/oads_flexconv/cfg/oads_config.yaml')
 
         cfg.net.data_dim = 2
+        cfg.net.no_hidden = 128
+
+        cfg.kernel.size = 7
+        cfg.kernel.no_hidden = 64
+
+        cfg.conv.padding = 3
+        cfg.conv.stride = 2
 
         model = ResNet_image(in_channels= n_input_channels,
         out_channels= output_channels,
@@ -346,6 +354,7 @@ if __name__ == '__main__':
             res_path, ident = args.model_path.split('model_')
 
         ident = ident.split('.pth')[0]
+        c_time = ident
         if os.path.exists(os.path.join(res_path, f'training_results_{ident}.yml')):
             results = result_manager.load_result(filename=f'training_results_{ident}.yml', path=res_path)
             
@@ -390,7 +399,8 @@ if __name__ == '__main__':
         'file_formats': file_formats,
         'image_representation': args.image_representation,
         'input_dir': args.input_dir,
-        'output_dir': args.output_dir
+        'output_dir': args.output_dir,
+        'cfg': OmegaConf.to_container(cfg, resolve=True),
     }
 
 
