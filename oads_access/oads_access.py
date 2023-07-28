@@ -55,6 +55,10 @@ class OADS_Access():
             if not self.use_rgbedges:
                 self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'ML')
             else:
+                if self.file_formats is not None:
+                    self.file_formats.append('.npy')
+                else:
+                    self.file_formats = ['.npy']
                 self.crops_dir = os.path.join(self.basedir, 'oads_arw', 'crops', 'ML_edges')
             
         os.makedirs(self.crops_dir, exist_ok=True)
@@ -118,7 +122,12 @@ class OADS_Access():
 
                 for type_folder_name in os.listdir(os.path.join(basedir, 'oads_arw')):
                     if os.path.isdir(os.path.join(basedir, 'oads_arw', type_folder_name)) and type_folder_name not in ['ARW', 'crops']:
-                        type_filename = annotation_file_name.replace('jpg', type_folder_name).replace('.json', '')
+                        if type_folder_name == 'edges':
+                            type_file_format = 'npy'
+                        else:
+                            type_file_format = type_folder_name
+
+                        type_filename = annotation_file_name.replace('jpg', type_file_format).replace('.json', '')
                         tup[f'{type_folder_name}_file_name'] = type_filename
                         tup[f'{type_folder_name}_file_path'] = os.path.join(basedir, 'oads_arw', type_folder_name, type_filename)
                 
@@ -216,6 +225,22 @@ class OADS_Access():
         else:
             return self.get_annotation(image_name=image_name, dataset_name=dataset_name)['objects'][index]['classTitle']
 
+    def get_class_index_mapping(self):
+        class_index_mapping = {}
+        index_label_mapping = {}
+        for i, x in enumerate(self.get_meta_info()['classes']):
+            # print(x['id'], x['title'])
+            key = x['id']
+            index = i
+            label = x['title']
+            class_index_mapping[key] = index
+            index_label_mapping[index] = label
+
+        self.class_index_mapping = class_index_mapping
+        self.index_label_mapping = index_label_mapping
+
+        return self.class_index_mapping, self.index_label_mapping
+
     def get_annotation(self, image_name: str,  dataset_name: str = None,  is_raw=False):
         """get_annotation
 
@@ -291,6 +316,9 @@ class OADS_Access():
                 if fileformat in ['.ARW']:
                     filename = info['raw_file_path']
                     continue
+                elif fileformat in ['.npy'] and self.use_rgbedges:
+                    filename = info['edges_file_path']
+                    continue
                 fileformat = fileformat.replace('.', '')
                 if f'{fileformat}_file_path' in info.keys():
                     filename = info[f'{fileformat}_file_path']
@@ -315,7 +343,8 @@ class OADS_Access():
             with rawpy.imread(filename) as raw:
                 img = raw.postprocess()
                 img = Image.fromarray(img)
-
+        elif fileformat == '.npy':
+            img = np.load(filename)
         else:
             img = Image.open(filename)
             if 'tiff' in fileformat and img.size == self.FULL_SIZE:

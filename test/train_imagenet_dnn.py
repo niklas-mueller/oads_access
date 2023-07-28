@@ -26,7 +26,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, random_split, Subset
 import time
-from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn, ToJpeg, EdgeResize, ToOpponentChannel, ToRGBEdges, ToRetinalGanglionCellSampling, get_confusion_matrix, get_result_figures, ImageNetKaggle
+from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn, ToJpeg, EdgeResize, ToOpponentChannel, ToRGBEdges, ToRetinalGanglionCellSampling, get_confusion_matrix, get_result_figures, ImageNetKaggle, ImageNetCueConflict
 from pytorch_utils.resnet10 import ResNet10
 import multiprocessing
 from PIL import Image
@@ -83,6 +83,8 @@ if __name__ == '__main__':
     # parser.add_argument(
     #     '-no_normalization', help='Whether to test', action='store_true')
     parser.add_argument(
+        '--limit_classes', help='Whether to use a limited number of classes. If False, all 1000 classes will be used. If true, 18 deterministic classes will be used. If n, n random classes will be used.', default=False)
+    parser.add_argument(
         '-test', help='Whether to test', action='store_true')
 
     args = parser.parse_args()
@@ -102,8 +104,22 @@ if __name__ == '__main__':
 
     size = (int(args.image_size), int(args.image_size))
 
+    limit_classes = args.limit_classes
+    texture_shape = False
+    if limit_classes == 'True':
+        use_classes = ['n01728572', 'n01882714', 'n02087046', 'n02100583', 'n02113186', 'n02259212', 'n02484975', 'n02791124', 'n02966193', 'n03188531', 'n03461385', 'n03706229', 'n03857828', 'n03998194', 'n04209239', 'n04389033', 'n04562935', 'n07753275']
+    elif limit_classes == 'False':
+        use_classes = None
+    elif 'texture' in limit_classes or 'shape' in limit_classes or 'cue' in limit_classes:
+        use_classes = 1000
+        texture_shape = True
+    else:
+        use_classes = int(limit_classes)
+
     n_input_channels = 3
-    output_channels = 1000
+    # output_channels = 1000
+    output_channels = (use_classes if type(use_classes) is int else len(use_classes)) if use_classes is not None else 1000
+    print(f'Using {output_channels} output channels.')
 
     result_manager = ResultManager(root=args.output_dir)
 
@@ -122,27 +138,45 @@ if __name__ == '__main__':
     transform_list.append(transforms.Normalize(mean_image, std_image))
     transform = transforms.Compose(transform_list)
 
+    if texture_shape:
+        imagenet = ImageNetCueConflict(args.input_dir, split='train', transform=transform, root_extension="", return_index=True, val_label_filepath='/home/mullern/projects/data/imagenet-1k/')
+        train_size = int(len(imagenet) * 0.9)
+        test_size = len(imagenet) - train_size
+        train_dataset, test_dataset  = random_split(imagenet, [train_size, test_size])
 
-    if 'ILSVRC' in os.listdir(args.input_dir):
-        imagenet = ImageNetKaggle(args.input_dir, split='train', transform=transform)
-        train_dataset, test_dataset  = random_split(imagenet, [1153051, 128116])
-        val_dataset = ImageNetKaggle(args.input_dir, split='val', transform=transform)
-
-    elif 'managed_datasets' in args.input_dir:
-        imagenet = ImageNetKaggle(args.input_dir, split='train', transform=transform, root_extension="", return_index=True, val_label_filepath='/home/mullern/projects/data/imagenet-1k/')
-        train_dataset, test_dataset  = random_split(imagenet, [1153051, 128116])
-        val_dataset = ImageNetKaggle(args.input_dir, split='validation', transform=transform, root_extension="", return_index=True, val_label_filepath='/home/mullern/projects/data/imagenet-1k/')
-
-    elif 'imagenet-object-localization-challenge.zip' in os.listdir(args.input_dir):
-        print('ZIP is currently not functional.')
-        exit(1)
-        # train_dataset = ImageNetKaggleZip(args.input_dir, split='train', transform=transform)
-        # # test_dataset = ImageNetKaggleZip(args.input_dir, split='test', transform=transform)
-        # val_dataset = ImageNetKaggleZip(args.input_dir, split='val', transform=transform)
+        # use_classes = list(imagenet.syn_to_class.keys())
+        val_dataset = ImageNetCueConflict(args.input_dir, split='validation', transform=transform, root_extension="", return_index=True, val_label_filepath='/home/mullern/projects/data/imagenet-1k/')
     else:
-        imagenet = ImageFolder(root=os.path.join(args.input_dir, 'train'), transform=transform)
-        train_dataset, test_dataset  = random_split(imagenet, [1153051, 128116])
-        val_dataset = ImageFolder(root=os.path.join(args.input_dir, 'val'), transform=transform)
+        if 'ILSVRC' in os.listdir(args.input_dir):
+            imagenet = ImageNetKaggle(args.input_dir, split='train', transform=transform, use_classes=use_classes)
+            train_size = int(len(imagenet) * 0.9)
+            test_size = len(imagenet) - train_size
+            train_dataset, test_dataset  = random_split(imagenet, [train_size, test_size])
+
+            use_classes = list(imagenet.syn_to_class.keys())
+            val_dataset = ImageNetKaggle(args.input_dir, split='val', transform=transform, use_classes=use_classes)
+
+        elif 'managed_datasets' in args.input_dir:
+            imagenet = ImageNetKaggle(args.input_dir, split='train', transform=transform, root_extension="", return_index=True, val_label_filepath='/home/mullern/projects/data/imagenet-1k/', use_classes=use_classes)
+            train_size = int(len(imagenet) * 0.9)
+            test_size = len(imagenet) - train_size
+            train_dataset, test_dataset  = random_split(imagenet, [train_size, test_size])
+
+            use_classes = list(imagenet.syn_to_class.keys())
+            val_dataset = ImageNetKaggle(args.input_dir, split='validation', transform=transform, root_extension="", return_index=True, val_label_filepath='/home/mullern/projects/data/imagenet-1k/', use_classes=use_classes)
+
+        elif 'imagenet-object-localization-challenge.zip' in os.listdir(args.input_dir):
+            print('ZIP is currently not functional.')
+            exit(1)
+            # train_dataset = ImageNetKaggleZip(args.input_dir, split='train', transform=transform)
+            # # test_dataset = ImageNetKaggleZip(args.input_dir, split='test', transform=transform)
+            # val_dataset = ImageNetKaggleZip(args.input_dir, split='val', transform=transform)
+        else:
+            imagenet = ImageFolder(root=os.path.join(args.input_dir, 'train'), transform=transform)
+            train_size = int(len(imagenet) * 0.9)
+            test_size = len(imagenet) - train_size
+            train_dataset, test_dataset  = random_split(imagenet, [train_size, test_size])
+            val_dataset = ImageFolder(root=os.path.join(args.input_dir, 'val'), transform=transform)
 
     
     trainloader = DataLoader(train_dataset, collate_fn=collate_fn, batch_size=batch_size, shuffle=True, num_workers=int(args.n_processes))
@@ -168,6 +202,14 @@ if __name__ == '__main__':
         cfg = OmegaConf.load(f'{home_path}/projects/oads_flexconv/cfg/oads_config.yaml')
 
         cfg.net.data_dim = 2
+        cfg.net.no_hidden = 140
+
+        cfg.kernel.size = 33
+        cfg.kernel.no_hidden = 32
+        cfg.kernel.no_layers = 3
+
+        cfg.conv.padding = "same"
+        cfg.conv.stride = 1
 
         model = ResNet_image(in_channels= n_input_channels,
         out_channels= output_channels,
@@ -176,7 +218,6 @@ if __name__ == '__main__':
         conv_cfg= cfg.conv,
         mask_cfg= cfg.mask,)
 
-        # print(model)
     #######################################
     elif args.model_type == 'alexnet':
         # print('AlesNet is not supported ATM.')
@@ -246,26 +287,23 @@ if __name__ == '__main__':
     plateau_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, 'min', patience=5)
     
-    # info = {
-    #     'training_indices': train_ids,
-    #     'testing_indices': test_ids,
-    #     'validation_indices': val_ids,
-    #     'optimizer': str(optimizer),
-    #     'scheduler': str(plateau_scheduler),
-    #     'model': str(model),
-    #     'args': str(args),
-    #     'device': str(device),
-    #     'criterion': str(criterion),
-    #     'size': size,
-    #     'transform': transform,
-    #     'file_formats': file_formats,
-    #     'image_representation': args.image_representation,
-    #     'input_dir': args.input_dir,
-    #     'output_dir': args.output_dir
-    # }
-    # if len(results) == 0:
-    #     result_manager.save_result(
-    #         result=info, filename=f'fitting_description_{c_time}.yaml')
+    info = {
+        'optimizer': str(optimizer),
+        'scheduler': str(plateau_scheduler),
+        'model': str(model),
+        'args': str(args),
+        'device': str(device),
+        'criterion': str(criterion),
+        'size': size,
+        'transform': transform,
+        'image_representation': args.image_representation,
+        'input_dir': args.input_dir,
+        'output_dir': args.output_dir
+    }
+
+    if len(results) == 0:
+        result_manager.save_result(
+            result=info, filename=f'fitting_description_{c_time}.yaml')
 
 
     train(model=model, trainloader=trainloader, valloader=valloader, device=device, results=results,

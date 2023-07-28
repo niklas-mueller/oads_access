@@ -7,6 +7,7 @@ os.environ["MKL_NUM_THREADS"] = str(nproc)
 os.environ["VECLIB_MAXIMUM_THREADS"] = str(nproc)
 os.environ["NUMEXPR_NUM_THREADS"] = str(nproc)
 
+import yaml
 import argparse
 import os
 import sys
@@ -27,7 +28,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 import time
-from pytorch_utils.pytorch_utils import train, evaluate, visualize_layers, collate_fn, ToJpeg, EdgeResize, ToOpponentChannel, ToRGBEdges, ToRetinalGanglionCellSampling, get_confusion_matrix, get_result_figures
+from pytorch_utils.pytorch_utils import ToJpegProbabilistic, train, evaluate, visualize_layers, collate_fn, ToJpeg, EdgeResize, ToOpponentChannel, ToRGBEdges, ToRetinalGanglionCellSampling, get_confusion_matrix, get_result_figures
 from pytorch_utils.resnet10 import ResNet10
 import multiprocessing
 from PIL import Image
@@ -43,7 +44,7 @@ from omegaconf import OmegaConf
 
 if __name__ == '__main__':
 
-    c_time = datetime.now().strftime("%d-%m-%y-%H:%M:%S")
+    c_time = datetime.now().strftime("%d-%m-%y-%H%M%S")
 
     # Instantiate the parser
     parser = argparse.ArgumentParser()
@@ -145,9 +146,11 @@ if __name__ == '__main__':
 
     exclude_classes = ['MASK', "Xtra Class 1", 'Xtra Class 2']
 
+    jpeg_quality = 40 if 'random' in args.jpeg_quality else int(args.jpeg_quality)
+
     home = args.input_dir
     oads = OADS_Access(home, file_formats=file_formats, use_jpeg=bool(args.use_jpeg), n_processes=int(
-        args.n_processes), exclude_classes=exclude_classes, jpeg_quality=int(args.jpeg_quality), use_rgbedges=use_rgbedges)
+        args.n_processes), exclude_classes=exclude_classes, jpeg_quality=jpeg_quality, use_rgbedges=use_rgbedges)
 
     # Compute crops if necessary
     if args.force_recrop:
@@ -158,13 +161,8 @@ if __name__ == '__main__':
 
     result_manager = ResultManager(root=args.output_dir)
 
-
     output_channels = len(oads.get_class_mapping())
-    class_index_mapping = {}
-    index_label_mapping = {}
-    for index, (key, item) in enumerate(list(oads.get_class_mapping().items())):
-        class_index_mapping[key] = index
-        index_label_mapping[index] = item
+    class_index_mapping, index_label_mapping = oads.get_class_index_mapping()
 
     batch_size = int(args.batch_size) # 256
 
@@ -190,6 +188,9 @@ if __name__ == '__main__':
     else:
         transform_list.append(transforms.Resize(size))
 
+    if 'random' in str(args.jpeg_quality):
+        transform_list.append(ToJpegProbabilistic(p=1.0))
+        
     if convert_to_gcs:
         transform_list.append(ToRetinalGanglionCellSampling())
         
@@ -213,22 +214,31 @@ if __name__ == '__main__':
 
     transform = transforms.Compose(transform_list)
 
-    try:
-        new_dataloader = False
-        ids = np.load(os.path.join(args.dataloader_path, 'item_ids.npz'))
-        train_ids, test_ids, val_ids = ids['train_ids'], ids['test_ids'], ids['val_ids']
-        train_ids = [(x[0], int(x[1])) for x in train_ids]
-        test_ids = [(x[0], int(x[1])) for x in test_ids]
-        val_ids = [(x[0], int(x[1])) for x in val_ids]
+    new_dataloader = False
+    if args.dataloader_path.endswith('.yaml'):
+        with open(args.dataloader_path, 'r') as stream:
+            info = yaml.load(stream=stream, Loader=yaml.UnsafeLoader)
 
-        if args.test:
-            train_ids = train_ids[:1000]
-            test_ids = test_ids[:1000]
-            val_ids = val_ids[:1000]
+        train_ids = info['training_indices']
+        test_ids = info['testing_indices']
+        val_ids = info['validation_indices']
+    else:
+        try:
+            new_dataloader = False
+            ids = np.load(os.path.join(args.dataloader_path, 'item_ids.npz'))
+            train_ids, test_ids, val_ids = ids['train_ids'], ids['test_ids'], ids['val_ids']
+            train_ids = [(x[0], int(x[1])) for x in train_ids]
+            test_ids = [(x[0], int(x[1])) for x in test_ids]
+            val_ids = [(x[0], int(x[1])) for x in val_ids]
 
-    except (Exception, FileNotFoundError) as e:
-        print(e)
-        new_dataloader = True        
+            if args.test:
+                train_ids = train_ids[:1000]
+                test_ids = test_ids[:1000]
+                val_ids = val_ids[:1000]
+
+        except (Exception, FileNotFoundError) as e:
+            print(e)
+            new_dataloader = True        
 
     if args.new_dataloader or new_dataloader:
         # get train, val, test split, using crops if specific size
@@ -239,10 +249,10 @@ if __name__ == '__main__':
         # os.makedirs(args.dataloader_path, exist_ok=True)
         # np.savez_compressed(file=os.path.join(args.dataloader_path, 'item_ids.npz'), **ids)
         
-    if use_rgbedges:
-        train_ids = [('c0b2d8e1d3d39afe', 0)]
-        val_ids = [('c0b2d8e1d3d39afe', 1)]
-        test_ids = [('c0b2d8e1d3d39afe', 2)]
+    # if use_rgbedges:
+    #     train_ids = [('c0b2d8e1d3d39afe', 0)]
+    #     val_ids = [('c0b2d8e1d3d39afe', 1)]
+    #     test_ids = [('c0b2d8e1d3d39afe', 2)]
 
     print(f"Loaded data with train_ids.shape: {len(train_ids)}")
     print(f"Loaded data with val_ids.shape: {len(val_ids)}")
@@ -250,20 +260,12 @@ if __name__ == '__main__':
     print(f"Total of {len(train_ids) + len(val_ids) + len(test_ids)} datapoints.")
 
     # Created custom OADS datasets
-    if bool(args.preload_all):
-        traindataset = OADSImageDatasetSharedMem(oads_access=oads, item_ids=train_ids, use_crops=True, size=(n_input_channels, size[0], size[1]),
-                                        class_index_mapping=class_index_mapping, transform=transform, device=device)
-        valdataset = OADSImageDatasetSharedMem(oads_access=oads, item_ids=val_ids, use_crops=True, size=(n_input_channels, size[0], size[1]),
-                                        class_index_mapping=class_index_mapping, transform=transform, device=device)
-        testdataset = OADSImageDatasetSharedMem(oads_access=oads, item_ids=test_ids, use_crops=True, size=(n_input_channels, size[0], size[1]),
-                                        class_index_mapping=class_index_mapping, transform=transform, device=device)
-    else:
-        traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, return_index=True,
-                                        class_index_mapping=class_index_mapping, transform=transform, device=device)
-        valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True, return_index=True,
-                                        class_index_mapping=class_index_mapping, transform=transform, device=device)
-        testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True, return_index=True,
-                                        class_index_mapping=class_index_mapping, transform=transform, device=device)
+    traindataset = OADSImageDataset(oads_access=oads, item_ids=train_ids, use_crops=True, return_index=True,
+                                    class_index_mapping=class_index_mapping, transform=transform, device=device)
+    valdataset = OADSImageDataset(oads_access=oads, item_ids=val_ids, use_crops=True, return_index=True,
+                                    class_index_mapping=class_index_mapping, transform=transform, device=device)
+    testdataset = OADSImageDataset(oads_access=oads, item_ids=test_ids, use_crops=True, return_index=True,
+                                    class_index_mapping=class_index_mapping, transform=transform, device=device)
 
     # Create loaders - shuffle training set, but not validation or test set
     trainloader = DataLoader(traindataset, collate_fn=collate_fn,
@@ -279,29 +281,142 @@ if __name__ == '__main__':
     # Initialize model
     if args.model_type == 'resnet10':
         model = ResNet10(n_output_channels=output_channels, n_input_channels=n_input_channels)
+    
     elif args.model_type == 'resnet18':
         model = resnet18()
         model.conv1 = torch.nn.Conv2d(in_channels=n_input_channels, out_channels=model.conv1.out_channels, kernel_size=(7,7), stride=(2,2), padding=(3,3), bias=False)
         model.fc = torch.nn.Linear(
             in_features=512, out_features=output_channels, bias=True)
+    
     elif args.model_type == 'resnet50':
         model = resnet50()
         model.conv1 = torch.nn.Conv2d(in_channels=n_input_channels, out_channels=model.conv1.out_channels, kernel_size=(7,7), stride=(2,2), padding=(3,3), bias=False)
         model.fc = torch.nn.Linear(
             in_features=2048, out_features=output_channels, bias=True)
         
-    ####################################### FLEX CONV
+    elif args.model_type == 'vae_resnet10':
+        import sys
+        sys.path.append(f'{home_path}/projects/oads-van/_code/')
+        from nn.architecture import VarResNet
+
+        def convert_state_dict(state_dict):
+            from collections import OrderedDict
+
+            new_state_dict = OrderedDict()
+            for k, v in state_dict.items():
+                if k.startswith('module.'):
+                    name = k[7:]  # remove `module.`
+                else:
+                    name = k
+                new_state_dict[name] = v
+
+            return new_state_dict
+        
+        def new_forward(self, x):
+            mu, logvar = self.encode(x)
+            z = self.reparameterize(mu, logvar)
+            x_recon = self.decode(z)
+            return x_recon
+        
+        weight_path = os.path.join(f'{home_path}/projects/oads_fixation_crop_models', f'random_30000_monotonic_1.0.pth')
+        state_dict = convert_state_dict(torch.load(weight_path, map_location=device)['model_state_dict'])
+        model = VarResNet()
+        model.decoder = nn.Sequential(
+            nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.ConvTranspose2d(256, 128, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.ConvTranspose2d(128, 64 , kernel_size=4, stride=2, padding=1, bias=False),
+            nn.ConvTranspose2d(64 , 32 , kernel_size=4, stride=2, padding=1, bias=False),
+            nn.ConvTranspose2d(32 , 3  , kernel_size=4, stride=2, padding=1, bias=False),
+        )
+
+        model.load_state_dict(state_dict)
+        # model.decoder = nn.Sequential(
+        #     nn.AdaptiveAvgPool2d(output_size=((1, 1))),
+        #     nn.Flatten(start_dim=1),
+        #     nn.Linear(in_features=512, out_features=output_channels, bias=True)
+        # )
+
+        # Alexnet-style decoder
+        model.decoder = nn.Sequential(
+            nn.AdaptiveAvgPool2d(output_size=((1, 1))),
+            nn.Flatten(start_dim=1),
+            nn.Dropout(p=0.5, inplace=False),
+            nn.Linear(in_features=512, out_features=265, bias=True),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.5, inplace=False),
+            nn.Linear(in_features=265, out_features=128, bias=True),
+            nn.ReLU(inplace=True),
+            nn.Linear(in_features=128, out_features=output_channels, bias=True),
+        )
+
+        bound_method = new_forward.__get__(model, model.__class__)
+        setattr(model, 'forward', bound_method)
+
+        for child in model.children():
+            for param in child.parameters():
+                param.requires_grad = False
+
+        for child in model.decoder.children():
+            for param in child.parameters():
+                param.requires_grad = True
+
+    elif 'imagenet' in args.model_type:
+
+        # Pretrained on full imagenet
+        model = resnet50(pretrained=True)
+
+        # Pretrained on Subset of imagenet
+        # model = resnet50()
+        # model.fc = torch.nn.Linear(
+        #     in_features=2048, out_features=1000, bias=True)
+        # try:
+        #     model.load_state_dict(torch.load('/home/nmuller/projects/imagenet_results/21-07-23-10:49:03/best_model_21-07-23-10:49:03.pth'))
+        # except:
+        #     model = torch.nn.DataParallel(model)
+        #     model.load_state_dict(torch.load('/home/nmuller/projects/imagenet_results/21-07-23-10:49:03/best_model_21-07-23-10:49:03.pth'))
+        #     model = model.module
+
+        if args.model_type == 'resnet50_imagenet_full':
+            
+            model.fc = torch.nn.Linear(
+                in_features=2048, out_features=output_channels, bias=True)
+            
+        elif args.model_type == 'resnet50_imagenet_block4':
+            model.fc = torch.nn.Linear(
+                in_features=2048, out_features=output_channels, bias=True)
+            
+            # Finetune Block4
+            for child in model.children():
+                for param in child.parameters():
+                    param.requires_grad = False
+
+            for child in model.layer4.children():
+                for param in child.parameters():
+                    param.requires_grad = True
+        elif args.model_type == 'resnet50_imagenet_fc':
+            model.fc = torch.nn.Linear(
+                in_features=2048, out_features=output_channels, bias=True)
+            
+            # Finetune Block4
+            for child in model.children():
+                for param in child.parameters():
+                    param.requires_grad = False
+
+            model.fc = torch.nn.Linear(
+                in_features=2048, out_features=output_channels, bias=True)
+    
     elif args.model_type == 'flex_resnet50':
         cfg = OmegaConf.load('/home/nmuller/projects/oads_flexconv/cfg/oads_config.yaml')
 
         cfg.net.data_dim = 2
-        cfg.net.no_hidden = 128
+        cfg.net.no_hidden = 140
 
-        cfg.kernel.size = 7
-        cfg.kernel.no_hidden = 64
+        cfg.kernel.size = 33
+        cfg.kernel.no_hidden = 32
+        cfg.kernel.no_layers = 3
 
-        cfg.conv.padding = 3
-        cfg.conv.stride = 2
+        cfg.conv.padding = "same"
+        cfg.conv.stride = 1
 
         model = ResNet_image(in_channels= n_input_channels,
         out_channels= output_channels,
@@ -310,18 +425,16 @@ if __name__ == '__main__':
         conv_cfg= cfg.conv,
         mask_cfg= cfg.mask,)
 
-        # print(model)
-    #######################################
     elif args.model_type == 'alexnet':
-        # print('AlesNet is not supported ATM.')
-        # exit(1)
         model = alexnet()
         model.classifier[6] = torch.nn.Linear(4096, output_channels, bias=True)
+    
     elif args.model_type == 'vgg16':
         model = vgg16()
         model.features[0] = torch.nn.Conv2d(in_channels=n_input_channels, out_channels=64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
         model.classifier[-1] = torch.nn.Linear(4096,
                                                output_channels, bias=True)
+    
     elif args.model_type == 'vgg11_bn':
         model = vgg11_bn()
         model.features[0] = torch.nn.Conv2d(in_channels=n_input_channels, out_channels=64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
@@ -400,7 +513,7 @@ if __name__ == '__main__':
         'image_representation': args.image_representation,
         'input_dir': args.input_dir,
         'output_dir': args.output_dir,
-        'cfg': OmegaConf.to_container(cfg, resolve=True),
+        'cfg': OmegaConf.to_container(cfg, resolve=True) if cfg is not None else '',
     }
 
 
